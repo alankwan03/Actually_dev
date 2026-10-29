@@ -22,6 +22,7 @@ export interface CalendarPickerProps {
   initialAvailability?: Record<string, TimeSlot[]>
   groupAvailability?: Record<string, GroupAvailabilityStatus>
   onContinue?: (availability: Record<string, TimeSlot[]>) => void
+  actionLabel?: string
 }
 
 const DEFAULT_GROUP_AVAILABILITY: Record<string, GroupAvailabilityStatus> = {
@@ -46,6 +47,7 @@ export function CalendarPicker({
   initialAvailability = DEFAULT_INITIAL_AVAILABILITY,
   groupAvailability = DEFAULT_GROUP_AVAILABILITY,
   onContinue,
+  actionLabel = 'Continue',
 }: CalendarPickerProps) {
   // Navigation month state
   const [currentMonthDate, setCurrentMonthDate] = useState<Date>(initialDate)
@@ -432,7 +434,7 @@ export function CalendarPicker({
           onClick={handleContinue}
           className="w-full py-4 px-6 rounded-2xl bg-[#8B1E28] hover:bg-[#781822] active:bg-[#68131B] active:scale-[0.99] text-white font-bold text-base shadow-lg shadow-[#8B1E28]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
         >
-          <span>Continue</span>
+          <span>{actionLabel}</span>
           {selectedDatesList.length > 0 && (
             <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-semibold">
               {selectedDatesList.length} {selectedDatesList.length === 1 ? 'day' : 'days'}

@@ -1,4 +1,10 @@
 node_modules
+pnpm-lock.yaml
+package-lock.json
+lock.yaml
+dist
+.env.local
+.env.*.local
 
 # Logs
 logs
@@ -137,5 +143,3 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-.lock.yaml
-.pnpm-lock.yaml
