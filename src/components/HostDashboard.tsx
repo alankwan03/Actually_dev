@@ -41,7 +41,7 @@ const INITIAL_MOCK_CIRCLES: OrganicCircle[] = [
     name: 'The Boys',
     emoji: '🍻',
     memberCount: 5,
-    members: ['Alex (You)', 'Dave', 'Sam', 'Matt', 'Chris'],
+    members: ['Taleisha (You)', 'Dave', 'Sam', 'Matt', 'Chris'],
     recentCatchUp: "Drinks at Sarah's",
     lastActive: '2 days ago',
     avatarColors: ['#8B1E28', '#D97706', '#2563EB', '#059669', '#7C3AED'],
@@ -51,7 +51,7 @@ const INITIAL_MOCK_CIRCLES: OrganicCircle[] = [
     name: 'Sunday Brunchers',
     emoji: '🥞',
     memberCount: 4,
-    members: ['Alex (You)', 'Sarah', 'Emma', 'Liam'],
+    members: ['Taleisha (You)', 'Sarah', 'Emma', 'Liam'],
     recentCatchUp: 'Weekend Brunch',
     lastActive: '1 week ago',
     avatarColors: ['#8B1E28', '#DB2777', '#EA580C', '#0D9488'],
@@ -61,7 +61,7 @@ const INITIAL_MOCK_CIRCLES: OrganicCircle[] = [
     name: 'Work Mates',
     emoji: '💻',
     memberCount: 6,
-    members: ['Alex (You)', 'Priya', 'Marcus', 'Chloe', 'Ben', 'Tom'],
+    members: ['Taleisha (You)', 'Priya', 'Marcus', 'Chloe', 'Ben', 'Tom'],
     recentCatchUp: 'Friday Wind Down',
     lastActive: '3 weeks ago',
     avatarColors: ['#8B1E28', '#4F46E5', '#0891B2', '#16A34A', '#CA8A04', '#64748B'],
@@ -119,7 +119,7 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
 export function HostDashboard({
   onCreateNew,
   onViewAsGuest,
-  userEmail = 'alex@example.com',
+  userEmail = 'taleisha.kwan@example.com',
   events = INITIAL_MOCK_EVENTS,
   circles = INITIAL_MOCK_CIRCLES,
 }: HostDashboardProps) {
@@ -148,9 +148,16 @@ export function HostDashboard({
               Actually. <span className="text-xl" role="img" aria-label="cocktail">🍸</span>
             </span>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458] truncate max-w-[150px]">
-            {userEmail}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458] truncate max-w-[150px]">
+              {userEmail}
+            </span>
+            <img
+              src="/tal-profile.png"
+              alt="Taleisha"
+              className="w-8 h-8 rounded-full object-cover border-2 border-[#F4C8C2] shadow-xs"
+            />
+          </div>
         </div>
 
         {/* Tab Switcher: "My Catch-ups" vs "My Circles" */}
@@ -406,18 +413,6 @@ export function HostDashboard({
           </div>
         )}
       </main>
-
-      {/* Floating / Prominent "Create New Catch-up" Sticky Button */}
-      <footer className="sticky bottom-0 inset-x-0 pt-4 pb-1 mt-4 bg-gradient-to-t from-[#FAFAFA] via-[#FAFAFA]/95 to-transparent backdrop-blur-2xs z-10">
-        <button
-          type="button"
-          onClick={() => onCreateNew()}
-          className="w-full py-4 px-6 rounded-2xl bg-[#8B1E28] hover:bg-[#781822] active:bg-[#68131B] text-white font-bold text-base shadow-lg shadow-[#8B1E28]/25 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.99]"
-        >
-          <span className="text-lg leading-none">+</span>
-          <span>Create New Catch-up</span>
-        </button>
-      </footer>
     </div>
   )
 }

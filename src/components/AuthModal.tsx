@@ -24,7 +24,7 @@ export function AuthModal({
     setIsLoading(true)
     setTimeout(() => {
       setIsLoading(false)
-      onSuccess('alex@example.com')
+      onSuccess('taleisha.kwan@example.com')
     }, 400)
   }
 

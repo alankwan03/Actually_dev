@@ -77,9 +77,14 @@ export function GuestView({
           <div className="bg-[#FFFDFB] rounded-3xl p-4 border border-[#EFE8DF] shadow-[0_2px_12px_rgba(40,30,20,0.04)] space-y-3">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-full bg-[#F4C8C2] text-[#8B1E28] font-bold text-base flex items-center justify-center shrink-0">
-                  {hostName.charAt(0)}
-                </span>
+                <img
+                  src="/tal-profile.png"
+                  alt={hostName}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm shrink-0"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
                 <div>
                   <p className="text-xs text-[#827167]">You've been invited by {hostName}</p>
                   <h2 className="text-base font-bold text-[#2B231F] leading-tight">

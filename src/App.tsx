@@ -1,30 +1,31 @@
 import { useState } from 'react'
-import { CalendarPicker, type TimeSlot } from './components/CalendarPicker'
-import { HostDashboard, type CatchUpEvent, type OrganicCircle } from './components/HostDashboard'
+import { type TimeSlot } from './components/CalendarPicker'
+import { type CatchUpEvent, type OrganicCircle } from './components/HostDashboard'
+import { HomeView } from './components/HomeView'
+import { PlansView } from './components/PlansView'
+import { ProfileView } from './components/ProfileView'
+import { CreateView } from './components/CreateView'
+import { ImFreeModal } from './components/ImFreeModal'
 import { AuthModal } from './components/AuthModal'
 import { GuestView } from './components/GuestView'
 import { APP_VERSION } from './config'
-import {
-  EVENT_TYPES,
-  ALL_30_MIN_SLOTS,
-  getTimeSlotsBetween,
-  type EventType,
-} from './utils/timeSlots'
+import { type EventType } from './utils/timeSlots'
 
-type AppView = 'create' | 'dashboard' | 'guest'
+type MainTab = 'home' | 'plans' | 'profile'
+type AppView = 'tabs' | 'create' | 'guest'
 
 const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
   {
     id: 'evt-1',
-    title: "Drinks at Sarah's",
+    title: "Drinks with The Girls",
     status: 'awaiting',
     statusText: 'Awaiting Replies (3/5)',
     datesProposed: 'Fri Nov 6 & Sat Nov 7',
     repliesCount: 3,
     totalInvited: 5,
-    inviteCode: 'actually.app/sarahs-drinks',
-    location: 'Sarah’s place or Gertrude St',
-    circleName: 'The Boys',
+    inviteCode: 'actually.app/taleisha-drinks',
+    location: "Sarah's place or Gertrude St",
+    circleName: 'The Girls',
     eventType: 'drinks',
     startTime: '6:00 PM',
     endTime: '11:30 PM',
@@ -64,96 +65,110 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
 const INITIAL_MOCK_CIRCLES: OrganicCircle[] = [
   {
     id: 'circle-1',
-    name: 'The Boys',
-    emoji: '🍻',
-    memberCount: 5,
-    members: ['Alex (You)', 'Dave', 'Sam', 'Matt', 'Chris'],
-    recentCatchUp: "Drinks at Sarah's",
-    lastActive: '2 days ago',
-    avatarColors: ['#8B1E28', '#D97706', '#2563EB', '#059669', '#7C3AED'],
+    name: 'The Girls',
+    emoji: '✨',
+    memberCount: 4,
+    members: ['Taleisha (You)', 'Sarah', 'Emma', 'Chloe'],
+    recentCatchUp: "Drinks with The Girls",
+    lastActive: 'Today',
+    avatarColors: ['#8B1E28', '#DB2777', '#EA580C', '#7C3AED'],
   },
   {
     id: 'circle-2',
-    name: 'Sunday Brunchers',
-    emoji: '🥞',
-    memberCount: 4,
-    members: ['Alex (You)', 'Sarah', 'Emma', 'Liam'],
-    recentCatchUp: 'Weekend Brunch',
-    lastActive: '1 week ago',
-    avatarColors: ['#8B1E28', '#DB2777', '#EA580C', '#0D9488'],
+    name: 'The Boys',
+    emoji: '🍻',
+    memberCount: 5,
+    members: ['Taleisha (You)', 'Dave', 'Sam', 'Matt', 'Chris'],
+    recentCatchUp: "Weekend Drinks",
+    lastActive: '2 days ago',
+    avatarColors: ['#8B1E28', '#D97706', '#2563EB', '#059669', '#7C3AED'],
   },
   {
     id: 'circle-3',
     name: 'Work Mates',
     emoji: '💻',
     memberCount: 6,
-    members: ['Alex (You)', 'Priya', 'Marcus', 'Chloe', 'Ben', 'Tom'],
+    members: ['Taleisha (You)', 'Priya', 'Marcus', 'Chloe', 'Ben', 'Tom'],
     recentCatchUp: 'Friday Wind Down',
     lastActive: '3 weeks ago',
     avatarColors: ['#8B1E28', '#4F46E5', '#0891B2', '#16A34A', '#CA8A04', '#64748B'],
   },
+  {
+    id: 'circle-4',
+    name: 'Sunday Brunchers',
+    emoji: '🥞',
+    memberCount: 4,
+    members: ['Taleisha (You)', 'Sarah', 'Liam', 'Jess'],
+    recentCatchUp: 'Weekend Brunch',
+    lastActive: '1 week ago',
+    avatarColors: ['#8B1E28', '#DB2777', '#EA580C', '#0D9488'],
+  },
 ]
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<AppView>('dashboard')
+  const [currentTab, setCurrentTab] = useState<MainTab>('home')
+  const [currentView, setCurrentView] = useState<AppView>('tabs')
+
+  // Modals
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
-  const [userEmail, setUserEmail] = useState<string>('alex@example.com')
+  const [isImFreeModalOpen, setIsImFreeModalOpen] = useState(false)
+
+  // App User & Profile
+  const [userName] = useState<string>('Taleisha')
+  const [userFullName] = useState<string>('Taleisha Kwan')
+  const [userAvatar] = useState<string>('/tal-profile.png')
+  const [userEmail, setUserEmail] = useState<string>('taleisha.kwan@example.com')
+
+  // Events & Circles
   const [events, setEvents] = useState<CatchUpEvent[]>(INITIAL_MOCK_EVENTS)
   const [circles, setCircles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
 
-  // Create Event Form State (Task 1: Event Type & Time Adjustments)
-  const [eventTitle, setEventTitle] = useState("Drinks at Sarah's")
-  const [circleName, setCircleName] = useState('')
-  const [eventType, setEventType] = useState<EventType>('drinks')
-  const [startTime, setStartTime] = useState('6:00 PM')
-  const [endTime, setEndTime] = useState('11:30 PM')
-
-  const [, setLastSavedAvailability] =
-    useState<Record<string, TimeSlot[]> | null>(null)
+  // Preselected Circle for Create Flow
+  const [createPreselectedCircle, setCreatePreselectedCircle] = useState<string>('')
   const [selectedEventForGuest, setSelectedEventForGuest] =
     useState<CatchUpEvent | null>(null)
 
-  // When host selects an Event Type pill, load default time window
-  const handleSelectEventType = (typeId: EventType) => {
-    setEventType(typeId)
-    const config = EVENT_TYPES.find((t) => t.id === typeId)
-    if (config) {
-      setStartTime(config.defaultStart)
-      setEndTime(config.defaultEnd)
-    }
-  }
+  // Pending Event Draft before Auth
+  const [pendingDraft, setPendingDraft] = useState<{
+    eventTitle: string
+    circleName: string
+    eventType: EventType
+    customEventTypeName?: string
+    location?: string
+    startTime: string
+    endTime: string
+    availability: Record<string, TimeSlot[]>
+  }>({
+    eventTitle: "Drinks with The Girls",
+    circleName: '',
+    eventType: 'drinks',
+    location: '',
+    startTime: '6:00 PM',
+    endTime: '11:30 PM',
+    availability: {},
+  })
 
-  // Calculate 30-min slots based on start/end
-  const hostGranularSlots = getTimeSlotsBetween(startTime, endTime)
-
-  // Start creating new event (optionally pre-selected circle)
+  // Start creating new event
   const handleStartCreate = (preselectedCircle?: string) => {
-    if (preselectedCircle) {
-      setCircleName(preselectedCircle)
-      setEventTitle(`Catch-up with ${preselectedCircle}`)
-    } else {
-      setCircleName('')
-      setEventTitle("Drinks at Sarah's")
-    }
-    // Default to Drinks
-    handleSelectEventType('drinks')
+    setCreatePreselectedCircle(preselectedCircle || '')
     setCurrentView('create')
   }
 
-  // Triggered when host completes date selection in 'create' view
-  const handleCreateContinue = (availability: Record<string, TimeSlot[]>) => {
-    setLastSavedAvailability(availability)
-    // Trigger Lazy Registration Modal
+  // Handle Generate Invite from CreateView
+  const handleGenerateInvite = (data: typeof pendingDraft) => {
+    setPendingDraft(data)
     setIsAuthModalOpen(true)
   }
 
-  // Handle successful registration / skip
+  // Handle successful registration / save event
   const handleAuthSuccess = (email?: string) => {
     if (email) {
       setUserEmail(email)
     }
 
-    // Organically create or update Circle if circleName was supplied
+    const { eventTitle, circleName, eventType, location, startTime, endTime } = pendingDraft
+
+    // Organically add Circle if circleName is provided and new
     if (circleName.trim()) {
       const trimmed = circleName.trim()
       setCircles((prev) => {
@@ -164,7 +179,7 @@ export default function App() {
             name: trimmed,
             emoji: '⭕',
             memberCount: 3,
-            members: ['Alex (You)', 'Friend 1', 'Friend 2'],
+            members: ['Taleisha (You)', 'Friend 1', 'Friend 2'],
             recentCatchUp: eventTitle,
             lastActive: 'Just now',
             avatarColors: ['#8B1E28', '#2563EB', '#059669'],
@@ -175,7 +190,7 @@ export default function App() {
       })
     }
 
-    // Add new event to My Catch-ups with Task 1 Event Type & Time Window
+    // Add new event to In the Works
     const newEvent: CatchUpEvent = {
       id: `evt-${Date.now()}`,
       title: eventTitle || "New Catch-up",
@@ -186,6 +201,7 @@ export default function App() {
       totalInvited: 4,
       inviteCode: `actually.app/${(eventTitle || 'plans').toLowerCase().replace(/\s+/g, '-')}`,
       circleName: circleName.trim() || undefined,
+      location: location || undefined,
       eventType,
       startTime,
       endTime,
@@ -193,7 +209,8 @@ export default function App() {
     setEvents((prev) => [newEvent, ...prev])
 
     setIsAuthModalOpen(false)
-    setCurrentView('dashboard')
+    setCurrentView('tabs')
+    setCurrentTab('plans')
   }
 
   const handleViewAsGuest = (event: CatchUpEvent) => {
@@ -203,227 +220,224 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F0EAE1] flex flex-col justify-start">
-      {/* Developer Viewport Navigation Switcher */}
+      {/* Developer Viewport Quick Switcher */}
       <div className="bg-[#2D231F] text-[#FAF7F2] py-2 px-4 shadow-sm z-50 text-xs">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <span className="font-semibold text-[#D4C3B7] tracking-wider uppercase text-[10px]">
-            Dev Preview Mode:
+            Dev Preview:
           </span>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setCurrentView('dashboard')}
-              className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                currentView === 'dashboard'
+              onClick={() => {
+                setCurrentView('tabs')
+                setCurrentTab('home')
+              }}
+              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                currentView === 'tabs' && currentTab === 'home'
                   ? 'bg-[#8B1E28] text-white'
                   : 'text-[#D4C3B7] hover:bg-white/10'
               }`}
             >
-              Host Dashboard
+              Home
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentView('tabs')
+                setCurrentTab('plans')
+              }}
+              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                currentView === 'tabs' && currentTab === 'plans'
+                  ? 'bg-[#8B1E28] text-white'
+                  : 'text-[#D4C3B7] hover:bg-white/10'
+              }`}
+            >
+              Plans
             </button>
             <button
               type="button"
               onClick={() => setCurrentView('create')}
-              className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
                 currentView === 'create'
                   ? 'bg-[#8B1E28] text-white'
                   : 'text-[#D4C3B7] hover:bg-white/10'
               }`}
             >
-              Create Event
+              Create
             </button>
             <button
               type="button"
               onClick={() => setCurrentView('guest')}
-              className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
                 currentView === 'guest'
                   ? 'bg-[#8B1E28] text-white'
                   : 'text-[#D4C3B7] hover:bg-white/10'
               }`}
             >
-              Guest View
+              Guest
             </button>
           </div>
         </div>
       </div>
 
-      {/* Centered Mobile Viewport Container */}
-      <div className="max-w-md mx-auto w-full min-h-screen p-4 bg-[#FAFAFA] shadow-lg flex flex-col justify-between relative">
+      {/* Centered Mobile Viewport Container: pb-20 prevents bottom-nav overlap */}
+      <div className="max-w-md mx-auto w-full min-h-screen p-4 bg-[#FAFAFA] shadow-lg flex flex-col justify-between relative pb-20">
         <div className="flex-1 flex flex-col">
-          {currentView === 'dashboard' && (
-            <HostDashboard
-              onCreateNew={handleStartCreate}
-              onViewAsGuest={handleViewAsGuest}
-              userEmail={userEmail}
-              events={events}
-              circles={circles}
+          {/* VIEW: Bottom Tab Views */}
+          {currentView === 'tabs' && (
+            <>
+              {/* TAB 1: Home */}
+              {currentTab === 'home' && (
+                <HomeView
+                  onMakePlan={() => handleStartCreate()}
+                  onImFree={() => setIsImFreeModalOpen(true)}
+                  onSelectCircle={(circle) => handleStartCreate(circle)}
+                  userName={userName}
+                  userAvatar={userAvatar}
+                />
+              )}
+
+              {/* TAB 2: Plans & Logistics ("In the Works") */}
+              {currentTab === 'plans' && (
+                <PlansView
+                  events={events}
+                  circles={circles}
+                  onCreateNew={handleStartCreate}
+                  onViewAsGuest={handleViewAsGuest}
+                  userEmail={userEmail}
+                />
+              )}
+
+              {/* TAB 3: Profile */}
+              {currentTab === 'profile' && (
+                <ProfileView
+                  userName={userFullName}
+                  userEmail={userEmail}
+                  userAvatar={userAvatar}
+                  onNavigateTab={(tab) => setCurrentTab(tab)}
+                />
+              )}
+            </>
+          )}
+
+          {/* VIEW: Create Event Flow (Task 1: CreateView with "Let's make a Plan") */}
+          {currentView === 'create' && (
+            <CreateView
+              onBack={() => setCurrentView('tabs')}
+              onGenerateInvite={handleGenerateInvite}
+              initialCircleName={createPreselectedCircle}
+              initialEventTitle={
+                createPreselectedCircle
+                  ? `Catch-up with ${createPreselectedCircle}`
+                  : "Drinks with The Girls"
+              }
             />
           )}
 
-          {currentView === 'create' && (
-            <div className="flex flex-col flex-1">
-              {/* Back to Dashboard and Action button */}
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-[#EFE9DF]">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('dashboard')}
-                  className="text-xs font-semibold text-[#8B1E28] hover:underline cursor-pointer"
-                >
-                  ← Back to My Catch-ups
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="text-xs font-bold px-3 py-1.5 rounded-xl bg-[#8B1E28] text-white hover:bg-[#781822] shadow-2xs transition-colors cursor-pointer"
-                >
-                  Generate Invite Link
-                </button>
-              </div>
-
-              {/* Event Details & Time Window Configuration (Task 1) */}
-              <div className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] mb-4 space-y-3.5">
-                {/* Event Title */}
-                <div>
-                  <label className="block text-xs font-bold text-[#453730] mb-1">
-                    Event Title
-                  </label>
-                  <input
-                    type="text"
-                    value={eventTitle}
-                    onChange={(e) => setEventTitle(e.target.value)}
-                    placeholder="e.g., Drinks at Sarah's, Weekend Brunch"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAFAFA] border border-[#E5DDD2] text-sm text-[#2B231F] font-semibold focus:outline-none focus:ring-2 focus:ring-[#8B1E28]"
-                  />
-                </div>
-
-                {/* Task 1: Event Type Selector Pills */}
-                <div>
-                  <label className="block text-xs font-bold text-[#453730] mb-1.5">
-                    Event Type
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {EVENT_TYPES.map((type) => {
-                      const isSelected = eventType === type.id
-                      return (
-                        <button
-                          key={type.id}
-                          type="button"
-                          onClick={() => handleSelectEventType(type.id)}
-                          className={`
-                            px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border select-none
-                            ${
-                              isSelected
-                                ? 'bg-[#8B1E28] text-white border-[#8B1E28] shadow-2xs scale-[1.02]'
-                                : 'bg-[#FAFAFA] border-[#E5DDD2] text-[#55463D] hover:bg-[#F5EFE9] hover:border-[#D5C6B7]'
-                            }
-                          `}
-                        >
-                          <span>{type.emoji}</span>
-                          <span>{type.label}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Task 1: Frictionless 30-Minute Time Window Selectors */}
-                <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#EDE5DA] space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-[#453730]">Time Window:</span>
-                    <span className="text-[11px] font-semibold text-[#8B1E28] bg-[#FDF3F1] px-2 py-0.5 rounded-md border border-[#F4C8C2]">
-                      {hostGranularSlots.length} slots (30-min increments)
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#7A6A60] mb-1">
-                        Start Time
-                      </label>
-                      <select
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                        className="w-full bg-white border border-[#E5DDD2] rounded-xl px-2.5 py-2 text-xs font-bold text-[#2B231F] focus:outline-none focus:ring-2 focus:ring-[#8B1E28] cursor-pointer"
-                      >
-                        {ALL_30_MIN_SLOTS.map((slot) => (
-                          <option key={slot} value={slot}>
-                            {slot}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#7A6A60] mb-1">
-                        End Time
-                      </label>
-                      <select
-                        value={endTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                        className="w-full bg-white border border-[#E5DDD2] rounded-xl px-2.5 py-2 text-xs font-bold text-[#2B231F] focus:outline-none focus:ring-2 focus:ring-[#8B1E28] cursor-pointer"
-                      >
-                        {ALL_30_MIN_SLOTS.map((slot) => (
-                          <option key={slot} value={slot}>
-                            {slot}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Circle Name (Optional) */}
-                <div>
-                  <label className="block text-xs font-bold text-[#453730] mb-1">
-                    Circle Name (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={circleName}
-                    onChange={(e) => setCircleName(e.target.value)}
-                    placeholder="e.g., The Boys, Work Mates"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAFAFA] border border-[#E5DDD2] text-sm text-[#2B231F] placeholder-[#A3958A] focus:outline-none focus:ring-2 focus:ring-[#8B1E28]"
-                  />
-                  <p className="text-[11px] text-[#86766D] mt-1 leading-normal">
-                    Friends who respond will automatically be grouped into this circle for effortless future catch-ups.
-                  </p>
-                </div>
-              </div>
-
-              {/* Task 3: Upgraded Heatmap Calendar Picker */}
-              <CalendarPicker
-                availableTimeSlots={hostGranularSlots}
-                timeWindowLabel={`${startTime} – ${endTime}`}
-                actionLabel="Generate Invite Link"
-                onContinue={handleCreateContinue}
-              />
-            </div>
-          )}
-
+          {/* VIEW: Guest RSVP Flow */}
           {currentView === 'guest' && (
             <GuestView
-              eventTitle={selectedEventForGuest?.title || "Drinks at Sarah's"}
-              location={selectedEventForGuest?.location || 'Sarah’s place or Gertrude St'}
-              eventType={selectedEventForGuest?.eventType || eventType}
-              startTime={selectedEventForGuest?.startTime || startTime}
-              endTime={selectedEventForGuest?.endTime || endTime}
-              onBackToDashboard={() => setCurrentView('dashboard')}
+              eventTitle={selectedEventForGuest?.title || "Drinks with The Girls"}
+              hostName={userName}
+              location={selectedEventForGuest?.location || "Sarah's place or Gertrude St"}
+              eventType={selectedEventForGuest?.eventType || 'drinks'}
+              startTime={selectedEventForGuest?.startTime || '6:00 PM'}
+              endTime={selectedEventForGuest?.endTime || '11:30 PM'}
+              onBackToDashboard={() => setCurrentView('tabs')}
             />
           )}
         </div>
 
-        {/* Centralized Discreet Version Footer */}
-        <footer className="text-xs text-gray-400 mt-8 pb-4 text-center select-none">
+        {/* Centralized Version Footer */}
+        <footer className="text-xs text-gray-400 mt-4 pb-2 text-center select-none">
           Actually {APP_VERSION}
         </footer>
+
+        {/* Fixed Bottom Navigation Bar (Home, Plans, Profile) */}
+        {currentView === 'tabs' && (
+          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-[#EDE5DA] z-40 px-6 py-2 shadow-[0_-4px_20px_rgba(0,0,0,0.04)]">
+            <div className="flex items-center justify-around">
+              {/* Home Tab */}
+              <button
+                type="button"
+                onClick={() => setCurrentTab('home')}
+                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
+                  currentTab === 'home'
+                    ? 'text-[#8B1E28] font-black'
+                    : 'text-[#8C7B71] hover:text-[#55463D]'
+                }`}
+              >
+                <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'home' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                <span className="text-[11px] tracking-tight">Home</span>
+                {currentTab === 'home' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
+                )}
+              </button>
+
+              {/* Plans Tab */}
+              <button
+                type="button"
+                onClick={() => setCurrentTab('plans')}
+                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
+                  currentTab === 'plans'
+                    ? 'text-[#8B1E28] font-black'
+                    : 'text-[#8C7B71] hover:text-[#55463D]'
+                }`}
+              >
+                <div className="relative">
+                  <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'plans' ? '#8B1E28' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {events.length > 0 && (
+                    <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-[#8B1E28] text-white text-[9px] font-bold flex items-center justify-center">
+                      {events.length}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] tracking-tight">Plans</span>
+                {currentTab === 'plans' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
+                )}
+              </button>
+
+              {/* Profile Tab */}
+              <button
+                type="button"
+                onClick={() => setCurrentTab('profile')}
+                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
+                  currentTab === 'profile'
+                    ? 'text-[#8B1E28] font-black'
+                    : 'text-[#8C7B71] hover:text-[#55463D]'
+                }`}
+              >
+                <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'profile' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="text-[11px] tracking-tight">Profile</span>
+                {currentTab === 'profile' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
+                )}
+              </button>
+            </div>
+          </nav>
+        )}
+
+        {/* Spontaneous "I'm Free" Bottom Sheet Modal */}
+        <ImFreeModal
+          isOpen={isImFreeModalOpen}
+          onClose={() => setIsImFreeModalOpen(false)}
+        />
 
         {/* Lazy Registration Modal */}
         <AuthModal
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
           onSuccess={handleAuthSuccess}
-          eventName={eventTitle}
-          circleName={circleName}
+          eventName={pendingDraft.eventTitle}
+          circleName={pendingDraft.circleName}
         />
       </div>
     </div>
