@@ -11,6 +11,9 @@ export interface CatchUpEvent {
   inviteCode: string
   location?: string
   circleName?: string
+  eventType?: 'breakfast' | 'brunch' | 'lunch' | 'dinner' | 'drinks'
+  startTime?: string
+  endTime?: string
 }
 
 export interface OrganicCircle {
@@ -77,6 +80,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/sarahs-drinks',
     location: 'Sarah’s place or Gertrude St',
     circleName: 'The Boys',
+    eventType: 'drinks',
+    startTime: '6:00 PM',
+    endTime: '11:30 PM',
   },
   {
     id: 'evt-2',
@@ -89,6 +95,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/weekend-brunch-nov',
     location: 'Higher Ground Cafe',
     circleName: 'Sunday Brunchers',
+    eventType: 'brunch',
+    startTime: '10:00 AM',
+    endTime: '2:00 PM',
   },
   {
     id: 'evt-3',
@@ -101,6 +110,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/board-games-crew',
     location: "Mark's apartment",
     circleName: 'Work Mates',
+    eventType: 'dinner',
+    startTime: '5:00 PM',
+    endTime: '10:00 PM',
   },
 ]
 
@@ -254,6 +266,12 @@ export function HostDashboard({
                       <span className="text-[#96867B]">🗓️</span>
                       <span className="font-medium">{evt.datesProposed}</span>
                     </div>
+                    {evt.startTime && evt.endTime && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#96867B]">⏰</span>
+                        <span className="font-medium capitalize">{evt.eventType || 'Event'} · {evt.startTime} – {evt.endTime}</span>
+                      </div>
+                    )}
                     {evt.location && (
                       <div className="flex items-center gap-2">
                         <span className="text-[#96867B]">📍</span>

@@ -1,61 +1,73 @@
 import { useState } from 'react'
 
-export type TimeSlot = 'morning' | 'afternoon' | 'evening'
-
-export interface SlotConfig {
-  id: TimeSlot
-  label: string
-  timeRange: string
-  icon: string
-}
-
-const TIME_SLOTS: SlotConfig[] = [
-  { id: 'morning', label: 'Morning', timeRange: '9:00 AM – 12:00 PM', icon: '☀️' },
-  { id: 'afternoon', label: 'Afternoon', timeRange: '12:00 PM – 5:00 PM', icon: '🌤️' },
-  { id: 'evening', label: 'Evening', timeRange: '5:00 PM onwards', icon: '🌙' },
-]
-
-export type GroupAvailabilityStatus = 'everyone' | 'some' | 'none'
+export type TimeSlot = string
 
 export interface CalendarPickerProps {
   initialDate?: Date
-  initialAvailability?: Record<string, TimeSlot[]>
-  groupAvailability?: Record<string, GroupAvailabilityStatus>
-  onContinue?: (availability: Record<string, TimeSlot[]>) => void
+  initialAvailability?: Record<string, string[]> // dateKey -> array of selected times (e.g. ['5:00 PM', '5:30 PM'])
+  consensusData?: Record<string, number>          // dateKey -> count of available friends (e.g. 0 to 5)
+  totalConsensusMembers?: number                  // total friends in circle (default: 5)
+  onContinue?: (availability: Record<string, string[]>) => void
   actionLabel?: string
+  activeDate?: string
+  onActiveDateChange?: (dateKey: string) => void
+  availableTimeSlots?: string[]                   // Host's defined 30-min time slots
+  timeWindowLabel?: string                        // e.g., "Dinner · 5:00 PM – 10:00 PM"
 }
 
-const DEFAULT_GROUP_AVAILABILITY: Record<string, GroupAvailabilityStatus> = {
-  '2026-11-06': 'everyone',
-  '2026-11-07': 'some',
-  '2026-11-13': 'some',
-  '2026-11-14': 'everyone',
-  '2026-11-20': 'some',
-  '2026-11-21': 'everyone',
-  '2026-11-27': 'some',
-  '2026-11-28': 'some',
+const DEFAULT_MOCK_CONSENSUS: Record<string, number> = {
+  '2026-11-06': 5, // Maximum consensus -> solid burgundy
+  '2026-11-07': 3, // Medium consensus -> medium opacity
+  '2026-11-13': 2, // Low consensus -> faint blush
+  '2026-11-14': 5, // Maximum consensus -> solid burgundy
+  '2026-11-15': 1, // Low consensus -> faint blush
+  '2026-11-20': 4, // High consensus -> deep rose
+  '2026-11-21': 5, // Maximum consensus -> solid burgundy
+  '2026-11-27': 3, // Medium consensus
+  '2026-11-28': 2, // Low consensus
 }
 
-const DEFAULT_INITIAL_AVAILABILITY: Record<string, TimeSlot[]> = {
-  '2026-11-06': ['evening'],
-  '2026-11-07': ['afternoon', 'evening'],
-  '2026-11-14': ['morning', 'afternoon', 'evening'],
+const DEFAULT_INITIAL_AVAILABILITY: Record<string, string[]> = {
+  '2026-11-06': ['6:00 PM', '6:30 PM', '7:00 PM', '7:30 PM'],
+  '2026-11-07': ['6:30 PM', '7:00 PM', '7:30 PM', '8:00 PM'],
+  '2026-11-14': ['5:00 PM', '5:30 PM', '6:00 PM', '6:30 PM', '7:00 PM'],
 }
+
+const DEFAULT_30_MIN_SLOTS: string[] = [
+  '5:00 PM', '5:30 PM', '6:00 PM', '6:30 PM', '7:00 PM',
+  '7:30 PM', '8:00 PM', '8:30 PM', '9:00 PM', '9:30 PM', '10:00 PM',
+]
 
 export function CalendarPicker({
   initialDate = new Date(2026, 10, 1), // November 2026
   initialAvailability = DEFAULT_INITIAL_AVAILABILITY,
-  groupAvailability = DEFAULT_GROUP_AVAILABILITY,
+  consensusData = DEFAULT_MOCK_CONSENSUS,
+  totalConsensusMembers = 5,
   onContinue,
   actionLabel = 'Continue',
+  activeDate: controlledActiveDate,
+  onActiveDateChange,
+  availableTimeSlots = DEFAULT_30_MIN_SLOTS,
+  timeWindowLabel = '5:00 PM – 10:00 PM',
 }: CalendarPickerProps) {
   // Navigation month state
   const [currentMonthDate, setCurrentMonthDate] = useState<Date>(initialDate)
-  // User availability map: 'YYYY-MM-DD' -> TimeSlot[]
+  // User availability map: 'YYYY-MM-DD' -> string[] (array of selected 30-min time slots)
   const [userAvailability, setUserAvailability] =
-    useState<Record<string, TimeSlot[]>>(initialAvailability)
-  // Active date for time-slot editing drawer
-  const [activeDate, setActiveDate] = useState<string>('2026-11-06')
+    useState<Record<string, string[]>>(initialAvailability)
+
+  // Internal active date state if not controlled
+  const [internalActiveDate, setInternalActiveDate] = useState<string>('2026-11-06')
+  const activeDate = controlledActiveDate ?? internalActiveDate
+
+  const setActiveDate = (dateKey: string) => {
+    if (onActiveDateChange) {
+      onActiveDateChange(dateKey)
+    } else {
+      setInternalActiveDate(dateKey)
+    }
+  }
+
   // Confirmation modal state
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false)
 
@@ -121,17 +133,17 @@ export function CalendarPicker({
   // Handle tapping a date on the calendar
   const handleDateClick = (dateKey: string) => {
     setActiveDate(dateKey)
-    // If date had no slots selected, automatically initialize with all day or evening
+    // If date had no slots selected, automatically initialize with all available slots in the window
     if (!userAvailability[dateKey] || userAvailability[dateKey].length === 0) {
       setUserAvailability((prev) => ({
         ...prev,
-        [dateKey]: ['morning', 'afternoon', 'evening'],
+        [dateKey]: [...availableTimeSlots],
       }))
     }
   }
 
-  // Toggle individual slot for active date
-  const toggleSlot = (slot: TimeSlot) => {
+  // Toggle individual 30-min slot for active date
+  const toggleSlot = (slot: string) => {
     if (!activeDate) return
 
     setUserAvailability((prev) => {
@@ -150,12 +162,12 @@ export function CalendarPicker({
     })
   }
 
-  // Set all slots for active date
-  const setAllDay = () => {
+  // Select all 30-min slots for active date
+  const setAllSlots = () => {
     if (!activeDate) return
     setUserAvailability((prev) => ({
       ...prev,
-      [activeDate]: ['morning', 'afternoon', 'evening'],
+      [activeDate]: [...availableTimeSlots],
     }))
   }
 
@@ -191,11 +203,45 @@ export function CalendarPicker({
     }
   }
 
+  // Heatmap styling calculator based on consensus count (Task 3)
+  const getHeatmapClasses = (dateKey: string, isCurrentMonth: boolean) => {
+    if (!isCurrentMonth) {
+      return 'text-[#D2C8BF] hover:text-[#A0938A] bg-transparent'
+    }
+
+    const count = consensusData[dateKey] || 0
+    const isSelected = (userAvailability[dateKey] || []).length > 0
+
+    // Full consensus: solid burgundy with white text
+    if (count >= 5) {
+      return 'bg-[#8B1E28] text-white font-extrabold shadow-2xs hover:bg-[#781822]'
+    }
+    // High consensus (4): deep burgundy at 70% opacity
+    if (count === 4) {
+      return 'bg-[#8B1E28]/70 text-white font-bold hover:bg-[#8B1E28]/80'
+    }
+    // Medium consensus (3): warm burgundy at 35% opacity
+    if (count === 3) {
+      return 'bg-[#8B1E28]/35 text-[#8B1E28] font-bold hover:bg-[#8B1E28]/45'
+    }
+    // Low consensus (1-2): faint blush at 10% opacity
+    if (count === 1 || count === 2) {
+      return 'bg-[#8B1E28]/10 text-[#8B1E28] font-semibold hover:bg-[#8B1E28]/15'
+    }
+
+    // If user selected this date but there's no consensus data:
+    if (isSelected) {
+      return 'bg-[#F4C8C2] text-[#8B1E28] font-bold'
+    }
+
+    // Default neutral unselected date
+    return 'text-[#2B231F] font-semibold hover:bg-[#F5ECE3]/70'
+  }
+
   return (
     <div className="flex flex-col flex-1 h-full select-none text-[#2B231F]">
       {/* 1. Header Section */}
       <header className="mb-4">
-        {/* Brand bar */}
         <div className="flex items-center justify-between pb-2 mb-2">
           <div className="flex items-center gap-2">
             <span className="text-2xl font-extrabold tracking-tight text-[#8B1E28] flex items-center gap-1.5">
@@ -203,20 +249,19 @@ export function CalendarPicker({
             </span>
           </div>
           <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458]">
-            Availability
+            Heatmap Consensus
           </span>
         </div>
 
-        {/* Subheading & Description */}
         <h1 className="text-2xl font-bold tracking-tight text-[#2B231F]">
           Find a Date
         </h1>
         <p className="text-sm text-[#73655C] mt-0.5 font-normal leading-relaxed">
-          Select the dates and times that work for you
+          Select the dates and 30-minute times that work for you. Darker burgundy represents highest group availability.
         </p>
       </header>
 
-      {/* 2. Interactive Calendar Grid Container */}
+      {/* 2. Interactive Heatmap Calendar Grid */}
       <section className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0]">
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-4 px-1">
@@ -260,75 +305,72 @@ export function CalendarPicker({
           ))}
         </div>
 
-        {/* Calendar Cells */}
-        <div className="grid grid-cols-7 gap-y-1 gap-x-1">
+        {/* Heatmap Calendar Cells (Clean of old green/orange dots!) */}
+        <div className="grid grid-cols-7 gap-y-1.5 gap-x-1">
           {allDisplayDays.map((item, idx) => {
-            const dateSlots = userAvailability[item.dateKey] || []
-            const isUserAvailable = dateSlots.length > 0
-            const groupStatus = groupAvailability[item.dateKey] || 'none'
             const isActive = activeDate === item.dateKey
+            const heatmapStyle = getHeatmapClasses(item.dateKey, item.isCurrentMonth)
+            const consensusCount = consensusData[item.dateKey] || 0
+            const userSlots = userAvailability[item.dateKey] || []
 
             return (
               <div key={`${item.dateKey}-${idx}`} className="flex flex-col items-center justify-center py-0.5">
                 <button
                   type="button"
                   onClick={() => handleDateClick(item.dateKey)}
+                  title={
+                    consensusCount > 0
+                      ? `${consensusCount} of ${totalConsensusMembers} friends available`
+                      : 'Tap to pick times'
+                  }
                   className={`
                     relative w-9 h-9 sm:w-10 sm:h-10 rounded-full flex flex-col items-center justify-center
                     transition-all duration-150 cursor-pointer select-none active:scale-95
-                    ${
-                      isUserAvailable
-                        ? 'bg-[#F4C8C2] text-[#8B1E28] font-bold shadow-2xs'
-                        : item.isCurrentMonth
-                        ? 'text-[#2B231F] font-semibold hover:bg-[#F5ECE3]/70'
-                        : 'text-[#D2C8BF] hover:text-[#A0938A]'
-                    }
-                    ${isActive ? 'ring-2 ring-[#8B1E28] ring-offset-1' : ''}
+                    ${heatmapStyle}
+                    ${isActive ? 'ring-2 ring-[#8B1E28] ring-offset-2 z-10 scale-105' : ''}
                   `}
                 >
                   <span className="text-sm leading-none">{item.day}</span>
+                  {userSlots.length > 0 && !isActive && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#8B1E28] ring-1 ring-white" />
+                  )}
                 </button>
-
-                {/* Group Aggregate Availability Indicator */}
-                <div className="h-2 flex items-center justify-center mt-0.5">
-                  {groupStatus === 'everyone' && (
-                    <span
-                      title="Everyone available"
-                      className="w-1.5 h-1.5 rounded-full bg-[#16A34A]"
-                    />
-                  )}
-                  {groupStatus === 'some' && (
-                    <span
-                      title="Some available"
-                      className="w-1.5 h-1.5 rounded-full border border-[#D97706] bg-transparent"
-                    />
-                  )}
-                </div>
               </div>
             )
           })}
         </div>
 
-        {/* 4. Legend Section */}
-        <div className="mt-4 pt-3 border-t border-[#F1E9DF] flex flex-wrap items-center justify-between gap-y-2 text-xs text-[#6F6158]">
+        {/* 3. Heatmap Consensus Legend (Task 3: Stripped of old dots) */}
+        <div className="mt-4 pt-3 border-t border-[#F1E9DF] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#6F6158]">
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-[#F4C8C2] border border-[#E7AEA5] inline-block" />
-            <span className="font-medium text-[#463933]">You're available</span>
+            <span className="text-[11px] font-semibold text-[#8A7970]">Consensus:</span>
+            <div className="flex items-center gap-1">
+              <span className="w-4 h-4 rounded-full bg-[#8B1E28]/10 flex items-center justify-center text-[9px] font-bold text-[#8B1E28]" title="1-2 available">
+                1-2
+              </span>
+              <span className="w-4 h-4 rounded-full bg-[#8B1E28]/35 flex items-center justify-center text-[9px] font-bold text-[#8B1E28]" title="3 available">
+                3
+              </span>
+              <span className="w-4 h-4 rounded-full bg-[#8B1E28]/70 flex items-center justify-center text-[9px] font-bold text-white" title="4 available">
+                4
+              </span>
+              <span className="w-4 h-4 rounded-full bg-[#8B1E28] flex items-center justify-center text-[9px] font-bold text-white" title="5/5 available">
+                5
+              </span>
+            </div>
+            <span className="text-[11px] font-semibold text-[#8B1E28] ml-1">
+              Solid = All Free
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#16A34A] inline-block" />
-            <span className="font-medium text-[#463933]">Everyone available</span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full border-2 border-[#D97706] bg-transparent inline-block" />
-            <span className="font-medium text-[#463933]">Some available</span>
+            <span className="w-3.5 h-3.5 rounded-full border-2 border-[#8B1E28] inline-block" />
+            <span className="font-semibold text-[#463933]">Selected Date</span>
           </div>
         </div>
       </section>
 
-      {/* 3. Multi-Slot Time Selection Drawer / Mechanism */}
+      {/* 4. Granular 30-Minute Time Slot Picker for Active Date (Tasks 1 & 2) */}
       {activeDate && (
         <section className="mt-4 bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] transition-all duration-200">
           {/* Active Date Header & Quick Actions */}
@@ -338,39 +380,38 @@ export function CalendarPicker({
                 <h3 className="text-base font-bold text-[#2B231F]">
                   {formatFriendlyDate(activeDate)}
                 </h3>
-                {groupAvailability[activeDate] === 'everyone' && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Everyone free
+                {consensusData[activeDate] && consensusData[activeDate] >= 5 && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#8B1E28] text-white">
+                    🔥 Full Consensus
                   </span>
                 )}
-                {groupAvailability[activeDate] === 'some' && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                    Some free
+                {consensusData[activeDate] && consensusData[activeDate] > 0 && consensusData[activeDate] < 5 && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#FDF3F1] text-[#8B1E28] border border-[#F4C8C2]">
+                    {consensusData[activeDate]}/{totalConsensusMembers} friends free
                   </span>
                 )}
               </div>
               <p className="text-xs text-[#7A6C63] mt-0.5">
+                Window: <span className="font-semibold text-[#2B231F]">{timeWindowLabel}</span> ·{' '}
                 {activeSlots.length > 0
-                  ? `Selected: ${activeSlots
-                      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-                      .join(', ')}`
-                  : 'No times selected for this date'}
+                  ? `${activeSlots.length} of ${availableTimeSlots.length} times selected`
+                  : 'Tap times below to mark when you are free'}
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
-                onClick={setAllDay}
+                onClick={setAllSlots}
                 className="text-xs font-bold text-[#8B1E28] hover:text-[#70151E] bg-[#FDF3F1] px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
               >
-                All Day
+                Select All
               </button>
               {activeSlots.length > 0 && (
                 <button
                   type="button"
                   onClick={clearActiveDate}
-                  className="text-xs font-medium text-[#8F7D72] hover:text-[#8B1E28] transition-colors cursor-pointer"
+                  className="text-xs font-medium text-[#8F7D72] hover:text-[#8B1E28] transition-colors cursor-pointer px-1"
                 >
                   Clear
                 </button>
@@ -378,52 +419,41 @@ export function CalendarPicker({
             </div>
           </div>
 
-          {/* Time Slot Toggle Buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {TIME_SLOTS.map((slot) => {
-              const isSelected = activeSlots.includes(slot.id)
+          {/* 30-Minute Selectable Pill Buttons Grid (Tasks 1 & 2) */}
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {availableTimeSlots.map((timeSlot) => {
+              const isSelected = activeSlots.includes(timeSlot)
               return (
                 <button
-                  key={slot.id}
+                  key={timeSlot}
                   type="button"
-                  onClick={() => toggleSlot(slot.id)}
+                  onClick={() => toggleSlot(timeSlot)}
                   className={`
-                    p-3 rounded-2xl flex items-center justify-between sm:flex-col sm:items-start text-left
-                    transition-all duration-150 cursor-pointer border
+                    py-2 px-2 rounded-xl text-center font-bold text-xs transition-all duration-150 cursor-pointer border select-none
                     ${
                       isSelected
-                        ? 'bg-[#FDF3F1] border-[#8B1E28] text-[#8B1E28] shadow-2xs'
-                        : 'bg-[#FAFAFA] border-[#EAE3DA] text-[#4A3E37] hover:border-[#D5C6B7] hover:bg-[#F5EFE9]'
+                        ? 'bg-[#8B1E28] text-white border-[#8B1E28] shadow-2xs scale-[1.02]'
+                        : 'bg-[#FAFAFA] border-[#E8E1D7] text-[#4A3D36] hover:border-[#D5C6B7] hover:bg-[#F5EFE9]'
                     }
                   `}
                 >
-                  <div className="flex items-center gap-2 sm:gap-1.5">
-                    <span className="text-base">{slot.icon}</span>
-                    <span className="text-sm font-bold">{slot.label}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:mt-1">
-                    <span
-                      className={`text-xs ${
-                        isSelected ? 'text-[#8B1E28]' : 'text-[#85746A]'
-                      }`}
-                    >
-                      {slot.timeRange}
-                    </span>
-                    <span
-                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                        isSelected
-                          ? 'bg-[#8B1E28] text-white'
-                          : 'border border-[#C8BCB0]'
-                      }`}
-                    >
-                      {isSelected ? '✓' : ''}
-                    </span>
-                  </div>
+                  <span>{timeSlot}</span>
                 </button>
               )
             })}
           </div>
+
+          {/* Active summary line */}
+          {activeSlots.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-[#F4EFE7] flex items-center justify-between text-xs text-[#6F6057]">
+              <span className="truncate max-w-[280px]">
+                Free: <strong className="text-[#8B1E28]">{activeSlots.join(', ')}</strong>
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                ✓ Saved
+              </span>
+            </div>
+          )}
         </section>
       )}
 
@@ -482,13 +512,11 @@ export function CalendarPicker({
                       <span className="text-sm font-bold text-[#2B231F] block">
                         {formatFriendlyDate(dateKey)}
                       </span>
-                      <span className="text-xs text-[#8A7A70]">
-                        {userAvailability[dateKey]
-                          ?.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-                          .join(', ')}
+                      <span className="text-xs text-[#8A7A70] line-clamp-1">
+                        {userAvailability[dateKey]?.join(', ')}
                       </span>
                     </div>
-                    <span className="w-3 h-3 rounded-full bg-[#F4C8C2] border border-[#E4A99F]" />
+                    <span className="w-3 h-3 rounded-full bg-[#8B1E28]" />
                   </div>
                 ))}
               </div>

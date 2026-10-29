@@ -4,6 +4,12 @@ import { HostDashboard, type CatchUpEvent, type OrganicCircle } from './componen
 import { AuthModal } from './components/AuthModal'
 import { GuestView } from './components/GuestView'
 import { APP_VERSION } from './config'
+import {
+  EVENT_TYPES,
+  ALL_30_MIN_SLOTS,
+  getTimeSlotsBetween,
+  type EventType,
+} from './utils/timeSlots'
 
 type AppView = 'create' | 'dashboard' | 'guest'
 
@@ -19,6 +25,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/sarahs-drinks',
     location: 'Sarah’s place or Gertrude St',
     circleName: 'The Boys',
+    eventType: 'drinks',
+    startTime: '6:00 PM',
+    endTime: '11:30 PM',
   },
   {
     id: 'evt-2',
@@ -31,6 +40,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/weekend-brunch-nov',
     location: 'Higher Ground Cafe',
     circleName: 'Sunday Brunchers',
+    eventType: 'brunch',
+    startTime: '10:00 AM',
+    endTime: '2:00 PM',
   },
   {
     id: 'evt-3',
@@ -43,6 +55,9 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     inviteCode: 'actually.app/board-games-crew',
     location: "Mark's apartment",
     circleName: 'Work Mates',
+    eventType: 'dinner',
+    startTime: '5:00 PM',
+    endTime: '10:00 PM',
   },
 ]
 
@@ -86,13 +101,30 @@ export default function App() {
   const [events, setEvents] = useState<CatchUpEvent[]>(INITIAL_MOCK_EVENTS)
   const [circles, setCircles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
 
-  // Create Event Form State
+  // Create Event Form State (Task 1: Event Type & Time Adjustments)
   const [eventTitle, setEventTitle] = useState("Drinks at Sarah's")
   const [circleName, setCircleName] = useState('')
+  const [eventType, setEventType] = useState<EventType>('drinks')
+  const [startTime, setStartTime] = useState('6:00 PM')
+  const [endTime, setEndTime] = useState('11:30 PM')
+
   const [, setLastSavedAvailability] =
     useState<Record<string, TimeSlot[]> | null>(null)
   const [selectedEventForGuest, setSelectedEventForGuest] =
     useState<CatchUpEvent | null>(null)
+
+  // When host selects an Event Type pill, load default time window
+  const handleSelectEventType = (typeId: EventType) => {
+    setEventType(typeId)
+    const config = EVENT_TYPES.find((t) => t.id === typeId)
+    if (config) {
+      setStartTime(config.defaultStart)
+      setEndTime(config.defaultEnd)
+    }
+  }
+
+  // Calculate 30-min slots based on start/end
+  const hostGranularSlots = getTimeSlotsBetween(startTime, endTime)
 
   // Start creating new event (optionally pre-selected circle)
   const handleStartCreate = (preselectedCircle?: string) => {
@@ -103,6 +135,8 @@ export default function App() {
       setCircleName('')
       setEventTitle("Drinks at Sarah's")
     }
+    // Default to Drinks
+    handleSelectEventType('drinks')
     setCurrentView('create')
   }
 
@@ -141,7 +175,7 @@ export default function App() {
       })
     }
 
-    // Add new event to My Catch-ups
+    // Add new event to My Catch-ups with Task 1 Event Type & Time Window
     const newEvent: CatchUpEvent = {
       id: `evt-${Date.now()}`,
       title: eventTitle || "New Catch-up",
@@ -152,6 +186,9 @@ export default function App() {
       totalInvited: 4,
       inviteCode: `actually.app/${(eventTitle || 'plans').toLowerCase().replace(/\s+/g, '-')}`,
       circleName: circleName.trim() || undefined,
+      eventType,
+      startTime,
+      endTime,
     }
     setEvents((prev) => [newEvent, ...prev])
 
@@ -243,8 +280,9 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Event Name & Organic Circle Inputs */}
-              <div className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] mb-4 space-y-3">
+              {/* Event Details & Time Window Configuration (Task 1) */}
+              <div className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] mb-4 space-y-3.5">
+                {/* Event Title */}
                 <div>
                   <label className="block text-xs font-bold text-[#453730] mb-1">
                     Event Title
@@ -258,7 +296,83 @@ export default function App() {
                   />
                 </div>
 
-                {/* Circle Name (Optional) input */}
+                {/* Task 1: Event Type Selector Pills */}
+                <div>
+                  <label className="block text-xs font-bold text-[#453730] mb-1.5">
+                    Event Type
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EVENT_TYPES.map((type) => {
+                      const isSelected = eventType === type.id
+                      return (
+                        <button
+                          key={type.id}
+                          type="button"
+                          onClick={() => handleSelectEventType(type.id)}
+                          className={`
+                            px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border select-none
+                            ${
+                              isSelected
+                                ? 'bg-[#8B1E28] text-white border-[#8B1E28] shadow-2xs scale-[1.02]'
+                                : 'bg-[#FAFAFA] border-[#E5DDD2] text-[#55463D] hover:bg-[#F5EFE9] hover:border-[#D5C6B7]'
+                            }
+                          `}
+                        >
+                          <span>{type.emoji}</span>
+                          <span>{type.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Task 1: Frictionless 30-Minute Time Window Selectors */}
+                <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#EDE5DA] space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-[#453730]">Time Window:</span>
+                    <span className="text-[11px] font-semibold text-[#8B1E28] bg-[#FDF3F1] px-2 py-0.5 rounded-md border border-[#F4C8C2]">
+                      {hostGranularSlots.length} slots (30-min increments)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#7A6A60] mb-1">
+                        Start Time
+                      </label>
+                      <select
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="w-full bg-white border border-[#E5DDD2] rounded-xl px-2.5 py-2 text-xs font-bold text-[#2B231F] focus:outline-none focus:ring-2 focus:ring-[#8B1E28] cursor-pointer"
+                      >
+                        {ALL_30_MIN_SLOTS.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#7A6A60] mb-1">
+                        End Time
+                      </label>
+                      <select
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="w-full bg-white border border-[#E5DDD2] rounded-xl px-2.5 py-2 text-xs font-bold text-[#2B231F] focus:outline-none focus:ring-2 focus:ring-[#8B1E28] cursor-pointer"
+                      >
+                        {ALL_30_MIN_SLOTS.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Circle Name (Optional) */}
                 <div>
                   <label className="block text-xs font-bold text-[#453730] mb-1">
                     Circle Name (Optional)
@@ -276,8 +390,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Calendar Picker for Date & Slot Selection */}
+              {/* Task 3: Upgraded Heatmap Calendar Picker */}
               <CalendarPicker
+                availableTimeSlots={hostGranularSlots}
+                timeWindowLabel={`${startTime} – ${endTime}`}
                 actionLabel="Generate Invite Link"
                 onContinue={handleCreateContinue}
               />
@@ -288,17 +404,20 @@ export default function App() {
             <GuestView
               eventTitle={selectedEventForGuest?.title || "Drinks at Sarah's"}
               location={selectedEventForGuest?.location || 'Sarah’s place or Gertrude St'}
+              eventType={selectedEventForGuest?.eventType || eventType}
+              startTime={selectedEventForGuest?.startTime || startTime}
+              endTime={selectedEventForGuest?.endTime || endTime}
               onBackToDashboard={() => setCurrentView('dashboard')}
             />
           )}
         </div>
 
-        {/* Task 1: Centralized Discreet Version Footer */}
+        {/* Centralized Discreet Version Footer */}
         <footer className="text-xs text-gray-400 mt-8 pb-4 text-center select-none">
           Actually {APP_VERSION}
         </footer>
 
-        {/* Task 3: Lazy Registration Modal */}
+        {/* Lazy Registration Modal */}
         <AuthModal
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
