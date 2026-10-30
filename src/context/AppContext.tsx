@@ -207,25 +207,41 @@ const SEED_EVENTS: Event[] = [
     startTime: '7:00 PM',
     endTime: '11:30 PM',
     location: "Sarah's place or Gertrude St",
-    invitedMemberIds: ['contact-tal', 'contact-maya', 'contact-sophie'],
+    invitedMemberIds: [
+      'contact-tal',
+      'contact-maya',
+      'contact-sophie',
+      'contact-liam',
+      'contact-dave',
+    ],
     rsvps: {
       'contact-tal': { contactId: 'contact-tal', status: 'accepted' },
       'contact-maya': { contactId: 'contact-maya', status: 'accepted' },
-      'contact-sophie': { contactId: 'contact-sophie', status: 'accepted' },
+      'contact-sophie': {
+        contactId: 'contact-sophie',
+        status: 'counter_proposed',
+        counterProposal: {
+          date: '2026-11-07',
+          startTime: '7:30 PM',
+          endTime: '11:00 PM',
+          note: 'Can we do Saturday instead?',
+        },
+      },
+      'contact-liam': { contactId: 'contact-liam', status: 'pending' },
+      'contact-dave': { contactId: 'contact-dave', status: 'pending' },
     },
     createdAt: '2026-10-25T10:00:00Z',
     status: 'awaiting',
-    statusText: 'Awaiting Replies (3/5)',
+    statusText: 'Awaiting Replies (2/5)',
     datesProposed: 'Fri Nov 6 & Sat Nov 7',
     dates: ['2026-11-06', '2026-11-07'],
-    repliesCount: 3,
+    repliesCount: 2,
     totalInvited: 5,
     inviteCode: 'actually.app/taleisha-drinks',
     circleName: 'Inner Circle',
     attendees: [
       { contactId: 'contact-tal', name: 'Taleisha Kwan', status: 'attending' },
       { contactId: 'contact-maya', name: 'Maya Lin', status: 'attending' },
-      { contactId: 'contact-sophie', name: 'Sophie Martin', status: 'attending' },
     ],
   },
   {
@@ -336,10 +352,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const hasIncoming = parsed.some(
             (e: any) => e.hostId && e.hostId !== 'contact-tal' && e.hostId !== 'user_tal'
           )
+          const refreshedList = parsed.map((e: any) => {
+            if (e.id === 'evt-1' && (!e.invitedMemberIds || e.invitedMemberIds.length === 3)) {
+              return SEED_EVENTS.find((s) => s.id === 'evt-1') || e
+            }
+            return e
+          })
           if (!hasIncoming) {
-            return [...SEED_INCOMING_EVENTS, ...parsed]
+            return [...SEED_INCOMING_EVENTS, ...refreshedList]
           }
-          return parsed
+          return refreshedList
         }
       }
     } catch {

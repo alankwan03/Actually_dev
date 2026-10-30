@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { PlanDetailView } from './plans/PlanDetailView'
+import { PlanCard } from './plans/PlanCard'
 
 export interface CatchUpEvent {
   id: string
@@ -17,6 +18,7 @@ export interface CatchUpEvent {
   startTime?: string
   endTime?: string
   invitedMemberIds?: string[]
+  rsvps?: Record<string, any>
   attendees?: Array<{
     contactId?: string
     name: string
@@ -252,13 +254,12 @@ export function HostDashboard({
             </div>
 
             {events.map((evt) => {
-              const isAwaiting = evt.status === 'awaiting'
-              const isConfirmed = evt.status === 'confirmed'
               const isCopied = copiedId === evt.id
 
               return (
-                <div
+                <PlanCard
                   key={evt.id}
+                  event={evt}
                   onClick={() => {
                     if (onSelectEvent) {
                       onSelectEvent(evt)
@@ -266,97 +267,10 @@ export function HostDashboard({
                       setSelectedEventId(evt.id)
                     }
                   }}
-                  className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] hover:border-[#DECFC1] transition-all cursor-pointer group"
-                >
-                  {/* Card Header: Title & Status Pill */}
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <h2 className="text-base font-bold text-[#2B231F] group-hover:text-[#8B1E28] transition-colors leading-snug">
-                        {evt.title}
-                      </h2>
-                      {evt.circleName && (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#8B1E28] mt-0.5">
-                          <span className="text-[10px]">⭕</span>
-                          <span>{evt.circleName}</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <span
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1.5 ${
-                        isConfirmed
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                          : isAwaiting
-                          ? 'bg-[#FDF3F1] text-[#8B1E28] border border-[#F4C8C2]'
-                          : 'bg-stone-100 text-stone-700'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isConfirmed ? 'bg-emerald-500' : 'bg-[#8B1E28]'
-                        }`}
-                      />
-                      {evt.statusText}
-                    </span>
-                  </div>
-
-                  {/* Proposed dates & Location */}
-                  <div className="space-y-1 text-xs text-[#6F6057] mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[#96867B]">🗓️</span>
-                      <span className="font-medium">{evt.datesProposed}</span>
-                    </div>
-                    {evt.startTime && evt.endTime && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#96867B]">⏰</span>
-                        <span className="font-medium capitalize">{evt.eventType || 'Event'} · {evt.startTime} – {evt.endTime}</span>
-                      </div>
-                    )}
-                    {evt.location && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#96867B]">📍</span>
-                        <span>{evt.location}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Footer inside Card: replies & copy link */}
-                  <div className="pt-2.5 border-t border-[#F4EFE8] flex items-center justify-between gap-2">
-                    <div className="text-[11px] text-[#8A796F]">
-                      <span className="font-semibold text-[#2B231F]">
-                        {evt.repliesCount} of {evt.totalInvited}
-                      </span>{' '}
-                      responded
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => handleCopy(evt, e)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                          isCopied
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-[#F5ECE3] hover:bg-[#F4C8C2] text-[#4A3C34] hover:text-[#8B1E28]'
-                        }`}
-                      >
-                        <span>{isCopied ? '✓ Copied!' : '🔗 Copy Link'}</span>
-                      </button>
-
-                      {onViewAsGuest && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onViewAsGuest(evt)
-                          }}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[#8B1E28] hover:bg-[#FDF3F1] transition-colors cursor-pointer"
-                        >
-                          Preview →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  onCopy={(e) => handleCopy(evt, e)}
+                  isCopied={isCopied}
+                  onViewAsGuest={onViewAsGuest}
+                />
               )
             })}
           </div>

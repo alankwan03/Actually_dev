@@ -4,15 +4,16 @@ import type { Event, GuestRsvp } from './types/event'
 import { useApp } from './context/AppContext'
 import { HomeView } from './components/HomeView'
 import { PlansView } from './components/PlansView'
+import { CirclesTab } from './components/circles/CirclesTab'
 import { ProfileView } from './components/ProfileView'
 import { CreateView } from './components/CreateView'
 import { ImFreeModal } from './components/ImFreeModal'
 import { AuthModal } from './components/AuthModal'
 import { GuestInviteView } from './components/guest/GuestInviteView'
+import { BottomNav, type MainTab } from './components/navigation/BottomNav'
 import { APP_VERSION } from './config'
 import { type EventType } from './utils/timeSlots'
 
-type MainTab = 'home' | 'plans' | 'profile'
 type AppView = 'tabs' | 'create' | 'guest'
 
 const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
@@ -183,7 +184,13 @@ export default function App() {
   })
 
   // Start creating new event
-  const handleStartCreate = () => {
+  const handleStartCreate = (_circleName?: string, preselectedDate?: string) => {
+    if (preselectedDate) {
+      setPendingDraft((prev) => ({
+        ...prev,
+        date: preselectedDate,
+      }))
+    }
     setCurrentView('create')
   }
 
@@ -317,9 +324,11 @@ export default function App() {
               {/* TAB 1: Home */}
               {currentTab === 'home' && (
                 <HomeView
-                  onMakePlan={() => handleStartCreate()}
+                  onMakePlan={(preselectedDate) => handleStartCreate(undefined, preselectedDate)}
                   onImFree={() => setIsImFreeModalOpen(true)}
-                  onSelectCircle={(circle) => handleStartCreate(circle)}
+                  onSelectPlan={(plan) => {
+                    setCurrentTab('plans')
+                  }}
                   onViewInvite={(event) => handleViewAsGuest(event as any, 'contact-tal')}
                   userName={userName}
                   userAvatar={userAvatar}
@@ -331,19 +340,26 @@ export default function App() {
                 <PlansView
                   events={events}
                   circles={circles}
-                  onCreateNew={handleStartCreate}
+                  onCreateNew={() => handleStartCreate()}
                   onViewAsGuest={handleViewAsGuest}
                   userEmail={userEmail}
                 />
               )}
 
-              {/* TAB 3: Profile */}
+              {/* TAB 3: Friend Circles */}
+              {currentTab === 'circles' && (
+                <CirclesTab
+                  onStartPlanWithCircle={(circleName) => handleStartCreate(circleName)}
+                />
+              )}
+
+              {/* TAB 4: Profile */}
               {currentTab === 'profile' && (
                 <ProfileView
                   userName={userFullName}
                   userEmail={userEmail}
                   userAvatar={userAvatar}
-                  onNavigateTab={(tab) => setCurrentTab(tab)}
+                  onNavigateTab={(tab) => setCurrentTab(tab as any)}
                 />
               )}
             </>
@@ -373,75 +389,13 @@ export default function App() {
           Actually {APP_VERSION}
         </footer>
 
-        {/* Fixed Bottom Navigation Bar (Home, Plans, Profile) */}
+        {/* Fixed Bottom Navigation Bar (Home, Plans, Circles, Profile) */}
         {currentView === 'tabs' && (
-          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-[#EDE5DA] z-40 px-6 py-2 shadow-[0_-4px_20px_rgba(0,0,0,0.04)]">
-            <div className="flex items-center justify-around">
-              {/* Home Tab */}
-              <button
-                type="button"
-                onClick={() => setCurrentTab('home')}
-                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
-                  currentTab === 'home'
-                    ? 'text-[#8B1E28] font-black'
-                    : 'text-[#8C7B71] hover:text-[#55463D]'
-                }`}
-              >
-                <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'home' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                <span className="text-[11px] tracking-tight">Home</span>
-                {currentTab === 'home' && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
-                )}
-              </button>
-
-              {/* Plans Tab */}
-              <button
-                type="button"
-                onClick={() => setCurrentTab('plans')}
-                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
-                  currentTab === 'plans'
-                    ? 'text-[#8B1E28] font-black'
-                    : 'text-[#8C7B71] hover:text-[#55463D]'
-                }`}
-              >
-                <div className="relative">
-                  <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'plans' ? '#8B1E28' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  {events.length > 0 && (
-                    <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-[#8B1E28] text-white text-[9px] font-bold flex items-center justify-center">
-                      {events.length}
-                    </span>
-                  )}
-                </div>
-                <span className="text-[11px] tracking-tight">Plans</span>
-                {currentTab === 'plans' && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
-                )}
-              </button>
-
-              {/* Profile Tab */}
-              <button
-                type="button"
-                onClick={() => setCurrentTab('profile')}
-                className={`flex flex-col items-center gap-1 py-1 px-3 transition-all cursor-pointer relative ${
-                  currentTab === 'profile'
-                    ? 'text-[#8B1E28] font-black'
-                    : 'text-[#8C7B71] hover:text-[#55463D]'
-                }`}
-              >
-                <svg className="w-5 h-5 stroke-[2.2]" fill={currentTab === 'profile' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span className="text-[11px] tracking-tight">Profile</span>
-                {currentTab === 'profile' && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#8B1E28] absolute -bottom-0.5" />
-                )}
-              </button>
-            </div>
-          </nav>
+          <BottomNav
+            currentTab={currentTab}
+            onSelectTab={(tab) => setCurrentTab(tab)}
+            plansBadgeCount={events.length}
+          />
         )}
 
         {/* Spontaneous "I'm Free" Bottom Sheet Modal */}

@@ -1,4 +1,5 @@
 import { PlansView, type PlansViewProps } from '../PlansView'
+export { PlanCard, type PlanCardProps } from './PlanCard'
 
 export type PlansListProps = PlansViewProps
 

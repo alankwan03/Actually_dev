@@ -47,3 +47,56 @@ export interface Event {
   }>
   votes?: Record<string, string[]>
 }
+
+export interface EventMomentum {
+  invitedCount: number
+  acceptedCount: number
+  declinedCount: number
+  hasCounterProposal: boolean
+  isLockedIn: boolean
+  momentumState: 'locked_in' | 'counter_proposed' | 'gathering'
+}
+
+export function getEventMomentum(event: Partial<Event>): EventMomentum {
+  const rawInvitedCount = event.invitedMemberIds?.length || 0
+  const rsvps = event.rsvps || {}
+
+  const rawAcceptedCount = Object.values(rsvps).filter(
+    (r: any) => r?.status === 'accepted'
+  ).length
+
+  const hasCounterProposal = Object.values(rsvps).some(
+    (r: any) => r?.status === 'counter_proposed'
+  )
+
+  const rawDeclinedCount = Object.values(rsvps).filter(
+    (r: any) => r?.status === 'declined'
+  ).length
+
+  // Fallbacks for mock/legacy events
+  const invitedCount =
+    rawInvitedCount > 0 ? rawInvitedCount : event.totalInvited || event.attendees?.length || 0
+  const acceptedCount =
+    rawInvitedCount > 0
+      ? rawAcceptedCount
+      : event.repliesCount || event.attendees?.filter((a) => a.status === 'attending').length || rawAcceptedCount
+
+  const isLockedIn = invitedCount > 0 && acceptedCount === invitedCount
+
+  let momentumState: 'locked_in' | 'counter_proposed' | 'gathering' = 'gathering'
+  if (isLockedIn) {
+    momentumState = 'locked_in'
+  } else if (hasCounterProposal) {
+    momentumState = 'counter_proposed'
+  }
+
+  return {
+    invitedCount,
+    acceptedCount,
+    declinedCount: rawDeclinedCount,
+    hasCounterProposal,
+    isLockedIn,
+    momentumState,
+  }
+}
+
