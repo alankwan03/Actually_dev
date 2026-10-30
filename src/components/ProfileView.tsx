@@ -8,9 +8,9 @@ export interface ProfileViewProps {
 }
 
 export function ProfileView({
-  userName = 'Taleisha Kwan',
-  userEmail = 'taleisha.kwan@example.com',
-  userAvatar = '/tal-profile.png',
+  userName = 'Friend',
+  userEmail = 'user@actually.app',
+  userAvatar = '',
   onNavigateTab,
 }: ProfileViewProps) {
   return (
@@ -29,15 +29,21 @@ export function ProfileView({
 
       {/* User Info Card */}
       <div className="bg-white rounded-3xl p-5 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] flex items-center gap-4 mb-6">
-        {userAvatar.startsWith('/') || userAvatar.startsWith('http') ? (
-          <img
-            src={userAvatar}
-            alt={userName}
-            className="w-16 h-16 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
-          />
+        {userAvatar ? (
+          userAvatar.startsWith('/') || userAvatar.startsWith('http') ? (
+            <img
+              src={userAvatar}
+              alt={userName}
+              className="w-16 h-16 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-3xl">
+              {userAvatar}
+            </div>
+          )
         ) : (
-          <div className="w-16 h-16 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-3xl">
-            {userAvatar}
+          <div className="w-16 h-16 rounded-full bg-[#F4C8C2] text-[#8B1E28] font-bold text-2xl flex items-center justify-center border-2 border-[#8B1E28]/20 shadow-xs">
+            {userName && userName !== 'Friend' ? userName.charAt(0).toUpperCase() : '?'}
           </div>
         )}
         <div className="space-y-0.5 min-w-0">

@@ -40,7 +40,7 @@ export function CreateView({
   onGenerateInvite,
   initialEventTitle = '',
 }: CreateViewProps) {
-  const { circles, contacts, events, getContactById, createContact } = useApp()
+  const { userCircles, contacts, events, getContactById, createContact } = useApp()
 
   // 1. WHAT: Catch Up Title (Mandatory, empty by default, autofocused)
   const [eventTitle, setEventTitle] = useState(initialEventTitle)
@@ -435,43 +435,45 @@ export function CreateView({
           </div>
 
           {/* Circle Preset Selector (Horizontal scroll chips) */}
-          <div>
-            <span className="block text-[11px] font-bold uppercase tracking-wider text-[#9E8E84] mb-1.5">
-              Circle Presets
-            </span>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar">
-              {circles.map((circle) => {
-                const allIncluded =
-                  circle.memberIds.length > 0 &&
-                  circle.memberIds.every((id) => invitedMemberIds.includes(id))
+          {userCircles.length > 0 && (
+            <div>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-[#9E8E84] mb-1.5">
+                Circle Presets
+              </span>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar">
+                {userCircles.map((circle) => {
+                  const allIncluded =
+                    circle.memberIds.length > 0 &&
+                    circle.memberIds.every((id) => invitedMemberIds.includes(id))
 
-                return (
-                  <button
-                    key={circle.id}
-                    type="button"
-                    onClick={() => handleToggleCirclePreset(circle)}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                      allIncluded
-                        ? 'bg-[#8B1E28] text-white border-[#8B1E28] shadow-xs'
-                        : 'bg-white text-[#55463D] border-[#E5DDD2] hover:border-[#8B1E28] hover:bg-[#FDF3F1]'
-                    }`}
-                  >
-                    <span>{circle.emoji || '👥'}</span>
-                    <span>{circle.name}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  return (
+                    <button
+                      key={circle.id}
+                      type="button"
+                      onClick={() => handleToggleCirclePreset(circle)}
+                      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
                         allIncluded
-                          ? 'bg-white/20 text-white'
-                          : 'bg-[#F4C8C2]/40 text-[#8B1E28]'
+                          ? 'bg-[#8B1E28] text-white border-[#8B1E28] shadow-xs'
+                          : 'bg-white text-[#55463D] border-[#E5DDD2] hover:border-[#8B1E28] hover:bg-[#FDF3F1]'
                       }`}
                     >
-                      {allIncluded ? '✓ Added' : `+${circle.memberIds.length}`}
-                    </span>
-                  </button>
-                )
-              })}
+                      <span>{circle.emoji || '👥'}</span>
+                      <span>{circle.name}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                          allIncluded
+                            ? 'bg-white/20 text-white'
+                            : 'bg-[#F4C8C2]/40 text-[#8B1E28]'
+                        }`}
+                      >
+                        {allIncluded ? '✓ Added' : `+${circle.memberIds.length}`}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Invited Guest Roster Display with ✕ remove buttons */}
           <div>

@@ -25,6 +25,7 @@ export interface PlanDetailViewProps {
   initialEvent?: Event
   onBack: () => void
   onPreviewAsGuest?: () => void
+  isHost?: boolean
 }
 
 export function PlanDetailView({
@@ -32,15 +33,43 @@ export function PlanDetailView({
   initialEvent,
   onBack,
   onPreviewAsGuest,
+  isHost: propIsHost,
 }: PlanDetailViewProps) {
-  const { events, updateEvent, deleteEvent, circles, contacts, getContactById, createContact } =
-    useApp()
+  const {
+    currentUser,
+    events,
+    updateEvent,
+    deleteEvent,
+    circles,
+    contacts,
+    getContactById,
+    createContact,
+    recordGuestRsvp,
+  } = useApp()
 
   // Direct event resolution from context without calling undefined helpers
   const event = useMemo(() => {
     if (initialEvent) return initialEvent as Event
     return events.find((e: any) => String(e?.id) === String(eventId))
   }, [events, eventId, initialEvent])
+
+  // Derive whether current user is the host
+  const isHost =
+    propIsHost !== undefined
+      ? propIsHost
+      : Boolean(
+          (event?.hostId &&
+            (event.hostId === currentUser?.id ||
+              (currentUser?.id === 'contact-tal' && event.hostId === 'user_tal'))) ||
+            (!event?.hostId &&
+              (currentUser?.id === 'contact-tal' || currentUser?.id === 'user_tal'))
+        )
+
+  // Current user's personal RSVP
+  const myRsvp =
+    event?.rsvps?.[currentUser?.id] ||
+    (currentUser?.id === 'contact-tal' ? event?.rsvps?.['user_tal'] : undefined)
+  const myRsvpStatus = myRsvp?.status || 'pending'
 
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -166,6 +195,62 @@ export function PlanDetailView({
     } catch {
       alert(`Share this link with your friends: ${inviteUrl}`)
     }
+  }
+
+  // Personal guest actions
+  const handleAddToCalendar = () => {
+    if (!event) return
+    const titleText = encodeURIComponent(event.title)
+    const locText = encodeURIComponent(event.location || '')
+    const inviteUrl = getEventInviteUrl(event.id, currentUser?.id, event)
+    const details = encodeURIComponent(
+      `Actually Catch-up with friends! RSVP link: ${inviteUrl}`
+    )
+    const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${titleText}&location=${locText}&details=${details}`
+    window.open(googleCalUrl, '_blank')
+  }
+
+  const handleDownloadIcs = () => {
+    if (!event) return
+    const rawDate = event.date || new Date().toISOString().split('T')[0]
+    const cleanDate = rawDate.replace(/-/g, '')
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Actually//Catch-up Event//EN',
+      'BEGIN:VEVENT',
+      `SUMMARY:${event.title}`,
+      `DESCRIPTION:${event.title} - Actually App`,
+      `LOCATION:${event.location || ''}`,
+      `DTSTART:${cleanDate}T120000Z`,
+      `DTEND:${cleanDate}T150000Z`,
+      'STATUS:CONFIRMED',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.setAttribute('download', `${event.title.replace(/\s+/g, '_')}.ics`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setSuccessToast('Calendar file (.ics) downloaded! 📅')
+    setTimeout(() => setSuccessToast(null), 3000)
+  }
+
+  const handleUpdateMyRsvp = (status: 'accepted' | 'declined' | 'counter_proposed') => {
+    if (!event || !currentUser) return
+    recordGuestRsvp(event.id, currentUser.id, status)
+    const msg =
+      status === 'accepted'
+        ? "You're in! Host has been notified 🥂"
+        : status === 'declined'
+        ? "You've declined this plan 💔"
+        : 'Suggestion noted 💬'
+    setSuccessToast(msg)
+    setTimeout(() => setSuccessToast(null), 3000)
   }
 
   const formatSpecificDate = (rawDate: string) => {
@@ -478,7 +563,7 @@ export function PlanDetailView({
         </button>
 
         <div className="flex items-center gap-2">
-          {onPreviewAsGuest && (
+          {isHost && onPreviewAsGuest && (
             <button
               type="button"
               onClick={onPreviewAsGuest}
@@ -490,38 +575,40 @@ export function PlanDetailView({
             </button>
           )}
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F4C8C2]/40 text-[#8B1E28]">
-            Host View
+            {isHost ? 'Host View' : 'Invited Guest'}
           </span>
           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#FDF3F1] text-[#8B1E28] border border-[#F4C8C2] capitalize">
             {event.eventType || 'Plan'}
           </span>
 
-          {/* Edit / Save Toggle Button */}
-          {isEditing ? (
-            <div className="flex items-center gap-1.5">
+          {/* Edit / Save Toggle Button (Host Only) */}
+          {isHost && (
+            isEditing ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="text-xs font-bold px-2.5 py-1 rounded-full text-gray-500 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveChanges}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full bg-[#8B1E28] text-white hover:bg-[#781822] shadow-xs cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setIsEditing(false)}
-                className="text-xs font-bold px-2.5 py-1 rounded-full text-gray-500 hover:text-gray-800"
+                onClick={() => setIsEditing(true)}
+                className="text-xs font-bold px-3 py-1 rounded-full bg-[#FAF5EE] text-[#8B1E28] hover:bg-[#FDF3F1] border border-[#F4C8C2] transition cursor-pointer"
               >
-                Cancel
+                ✎ Edit
               </button>
-              <button
-                type="button"
-                onClick={handleSaveChanges}
-                className="text-xs font-bold px-3 py-1.5 rounded-full bg-[#8B1E28] text-white hover:bg-[#781822] shadow-xs cursor-pointer"
-              >
-                Save
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className="text-xs font-bold px-3 py-1 rounded-full bg-[#FAF5EE] text-[#8B1E28] hover:bg-[#FDF3F1] border border-[#F4C8C2] transition cursor-pointer"
-            >
-              ✎ Edit
-            </button>
+            )
           )}
         </div>
       </div>
@@ -533,12 +620,33 @@ export function PlanDetailView({
           <div className="bg-white rounded-3xl p-5 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] space-y-3.5">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#9E8E84]">
-                Host Dashboard · Planned Catch-up
+                {isHost ? 'Host Dashboard · Planned Catch-up' : `Organised by ${event.hostName || 'a friend'} · Catch-up`}
               </span>
               <h1 className="text-2xl font-black text-[#2B231F] tracking-tight mt-0.5 leading-snug">
                 {event.title}
               </h1>
             </div>
+
+            {/* Organiser card (for non-hosts) */}
+            {!isHost && (
+              <div className="flex items-center gap-3 p-3 bg-[#FAF7F2] rounded-2xl border border-[#EDE5DA]">
+                {event.hostAvatar ? (
+                  <img
+                    src={event.hostAvatar}
+                    alt={event.hostName}
+                    className="w-10 h-10 rounded-full object-cover border border-[#F4C8C2]"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-[#F4C8C2] text-[#8B1E28] font-bold text-sm flex items-center justify-center">
+                    {event.hostName ? event.hostName.charAt(0).toUpperCase() : 'H'}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#9E8E84]">Organiser</p>
+                  <p className="text-xs font-bold text-[#2B231F] truncate">{event.hostName || 'Friend'}</p>
+                </div>
+              </div>
+            )}
 
             {/* Date & Time Badge */}
             <div className="bg-[#FAF7F2] border border-[#EDE5DA] rounded-2xl p-3 flex items-center justify-between gap-3">
@@ -571,33 +679,107 @@ export function PlanDetailView({
               </span>
             </div>
 
-            {/* Quick Share Invite Link & Preview as Guest Buttons */}
-            <div className="pt-1 space-y-2">
-              <button
-                type="button"
-                onClick={handleShareLink}
-                className="w-full bg-[#F4C8C2]/40 hover:bg-[#F4C8C2]/60 text-[#8B1E28] font-bold py-2.5 px-4 rounded-2xl flex items-center justify-center gap-2 active:scale-[0.98] transition cursor-pointer border border-[#F4C8C2]"
-              >
-                <span>🔗</span>
-                <span>Share Invite Link</span>
-              </button>
-              {showCopiedToast && (
-                <p className="text-center text-xs font-bold text-emerald-700 mt-1 animate-in fade-in">
-                  ✓ Link copied to clipboard!
-                </p>
-              )}
+            {/* Host Actions vs Guest Actions */}
+            {!isHost ? (
+              <div className="pt-2 space-y-3">
+                {/* Personal RSVP Status & Update Buttons */}
+                <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#EDE5DA] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#2B231F]">Your Attendance</span>
+                    <span
+                      className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                        myRsvpStatus === 'accepted'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : myRsvpStatus === 'declined'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {myRsvpStatus === 'accepted'
+                        ? 'Going 🥂'
+                        : myRsvpStatus === 'declined'
+                        ? "Can't Go 💔"
+                        : 'Invited / Pending ⏳'}
+                    </span>
+                  </div>
 
-              {onPreviewAsGuest && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateMyRsvp('accepted')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        myRsvpStatus === 'accepted'
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'bg-white border border-[#EDE5DA] text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <span>🥂</span>
+                      <span>I'm In</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateMyRsvp('declined')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        myRsvpStatus === 'declined'
+                          ? 'bg-rose-700 text-white shadow-xs'
+                          : 'bg-white border border-[#EDE5DA] text-rose-700 hover:bg-rose-50'
+                      }`}
+                    >
+                      <span>💔</span>
+                      <span>Can't Make It</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Add to Calendar (.ics and Google Calendar) */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddToCalendar}
+                    className="py-2.5 px-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <span>📅</span>
+                    <span>Google Cal</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadIcs}
+                    className="py-2.5 px-3 rounded-2xl bg-white hover:bg-[#FAF7F2] text-[#2B231F] border border-[#EDE5DA] font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <span>📥</span>
+                    <span>Download .ics</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Quick Share Invite Link & Preview as Guest Buttons */
+              <div className="pt-1 space-y-2">
                 <button
                   type="button"
-                  onClick={onPreviewAsGuest}
-                  className="w-full bg-white hover:bg-[#FAF7F2] text-[#8B1E28] font-semibold py-2 px-4 rounded-2xl flex items-center justify-center gap-1.5 transition cursor-pointer border border-[#EFE9DF] text-xs shadow-2xs"
+                  onClick={handleShareLink}
+                  className="w-full bg-[#F4C8C2]/40 hover:bg-[#F4C8C2]/60 text-[#8B1E28] font-bold py-2.5 px-4 rounded-2xl flex items-center justify-center gap-2 active:scale-[0.98] transition cursor-pointer border border-[#F4C8C2]"
                 >
-                  <span>👁️</span>
-                  <span>Preview as Guest</span>
+                  <span>🔗</span>
+                  <span>Share Invite Link</span>
                 </button>
-              )}
-            </div>
+                {showCopiedToast && (
+                  <p className="text-center text-xs font-bold text-emerald-700 mt-1 animate-in fade-in">
+                    ✓ Link copied to clipboard!
+                  </p>
+                )}
+
+                {onPreviewAsGuest && (
+                  <button
+                    type="button"
+                    onClick={onPreviewAsGuest}
+                    className="w-full bg-white hover:bg-[#FAF7F2] text-[#8B1E28] font-semibold py-2 px-4 rounded-2xl flex items-center justify-center gap-1.5 transition cursor-pointer border border-[#EFE9DF] text-xs shadow-2xs"
+                  >
+                    <span>👁️</span>
+                    <span>Preview as Guest</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* RSVP Momentum Tracker Section */}
@@ -607,40 +789,42 @@ export function PlanDetailView({
             onApplyCounterProposal={handleApplyCounterProposal}
           />
 
-          {/* Destructive Action: Cancel Plan */}
-          <div className="pt-4">
-            {showDeleteConfirm ? (
-              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center space-y-3 animate-in fade-in">
-                <p className="text-xs font-bold text-red-800">
-                  Are you sure you want to cancel this plan? This cannot be undone.
-                </p>
-                <div className="flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteConfirm(false)}
-                    className="px-3 py-1.5 rounded-xl border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    Keep Plan
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeletePlan}
-                    className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-                  >
-                    Yes, Cancel Plan
-                  </button>
+          {/* Destructive Action: Cancel Plan (Host Only) */}
+          {isHost && (
+            <div className="pt-4">
+              {showDeleteConfirm ? (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center space-y-3 animate-in fade-in">
+                  <p className="text-xs font-bold text-red-800">
+                    Are you sure you want to cancel this plan? This cannot be undone.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="px-3 py-1.5 rounded-xl border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      Keep Plan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeletePlan}
+                      className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    >
+                      Yes, Cancel Plan
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="text-red-600 text-sm font-semibold py-3 text-center w-full hover:underline block cursor-pointer transition"
-              >
-                Cancel Plan
-              </button>
-            )}
-          </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="text-red-600 text-sm font-semibold py-3 text-center w-full hover:underline block cursor-pointer transition"
+                >
+                  Cancel Plan
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         /* EDIT MODE: Form Fields */

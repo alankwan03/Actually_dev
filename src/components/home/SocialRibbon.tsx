@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { Event } from '../../types/event'
 import { formatTimeDisplay } from '../../utils/time'
-import { useApp } from '../../context/AppContext'
+import { useApp, isEventRelevantToUser } from '../../context/AppContext'
 
 export interface SocialRibbonProps {
   events: Event[]
@@ -22,7 +22,7 @@ export function SocialRibbon({
   onSelectPlan,
   onMakePlanForDate,
 }: SocialRibbonProps) {
-  const { getContactById } = useApp()
+  const { currentUser, getContactById } = useApp()
 
   // Generate 14-day rolling window starting from today
   const days: DayItem[] = useMemo(() => {
@@ -57,11 +57,12 @@ export function SocialRibbon({
   const todayISO = days[0]?.dateISO || new Date().toISOString().split('T')[0]
   const [selectedRibbonDate, setSelectedRibbonDate] = useState<string>(todayISO)
 
-  // Map events to dateISO
+  // Map events to dateISO (only events relevant to the current user)
   const eventsByDate = useMemo(() => {
     const map = new Map<string, Event[]>()
     for (const evt of events) {
       if (!evt.date) continue
+      if (!isEventRelevantToUser(evt, currentUser?.id)) continue
       // Ensure date matches YYYY-MM-DD format
       const cleanDate = evt.date.split('T')[0]
       const existing = map.get(cleanDate) || []
@@ -69,7 +70,7 @@ export function SocialRibbon({
       map.set(cleanDate, existing)
     }
     return map
-  }, [events])
+  }, [events, currentUser?.id])
 
   const selectedDayEvents = eventsByDate.get(selectedRibbonDate) || []
 

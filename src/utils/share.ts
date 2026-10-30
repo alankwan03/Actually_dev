@@ -27,7 +27,40 @@ export function fromBase64(str: string): string {
 /**
  * Serializes an event snapshot into a base64 string
  */
-export function encodeEventSnapshot(event: Partial<Event> & { id: string }): string {
+export function encodeEventSnapshot(event: Partial<Event> & { id: string; invitedMembers?: { id: string; name: string; avatarUrl?: string }[] }): string {
+  let invitedMembers = event.invitedMembers
+  if (!invitedMembers && Array.isArray(event.invitedMemberIds)) {
+    let storedContacts: any[] = []
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('actually_contacts') : null
+      if (raw) storedContacts = JSON.parse(raw)
+    } catch {
+      // fallback
+    }
+    invitedMembers = event.invitedMemberIds.map((id: string) => {
+      const match = storedContacts.find((c: any) => c.id === id)
+      const fallbackName =
+        id === 'contact-tal'
+          ? 'Taleisha Kwan'
+          : id === 'contact-maya'
+          ? 'Maya Lin'
+          : id === 'contact-liam'
+          ? 'Liam Chen'
+          : id === 'contact-sophie'
+          ? 'Sophie Martin'
+          : id === 'contact-dave'
+          ? 'Dave Wilson'
+          : id === 'contact-sam'
+          ? 'Sam Miller'
+          : id.replace('contact-', '')
+      return {
+        id,
+        name: match?.name || fallbackName,
+        avatarUrl: match?.avatarUrl,
+      }
+    })
+  }
+
   const snapshot: Record<string, any> = {
     id: event.id,
     title: event.title,
@@ -43,6 +76,7 @@ export function encodeEventSnapshot(event: Partial<Event> & { id: string }): str
     hostAvatar: event.hostAvatar || '/tal-profile.png',
     circleName: event.circleName,
     invitedMemberIds: event.invitedMemberIds || [],
+    invitedMembers: invitedMembers || [],
     rsvps: event.rsvps || {},
     status: event.status || 'awaiting',
     statusText: event.statusText,
@@ -51,6 +85,50 @@ export function encodeEventSnapshot(event: Partial<Event> & { id: string }): str
   }
 
   return toBase64(JSON.stringify(snapshot))
+}
+
+/**
+ * Generates and triggers download of a standardized .ics file
+ */
+export function downloadEventIcs(event: {
+  title: string
+  date?: string
+  startTime?: string
+  endTime?: string
+  location?: string
+  id?: string
+}): void {
+  const rawDate = event.date || new Date().toISOString().split('T')[0]
+  const cleanDate = rawDate.replace(/-/g, '')
+
+  const icsContent = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Actually//Catch-up Event//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:actually-${event.id || Date.now()}@actually.app`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+    `DTSTART:${cleanDate}T120000Z`,
+    `DTEND:${cleanDate}T150000Z`,
+    `SUMMARY:${event.title}`,
+    `DESCRIPTION:${event.title} - Actually App`,
+    `LOCATION:${event.location || ''}`,
+    'STATUS:CONFIRMED',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n')
+
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `${(event.title || 'Catch_up').replace(/[^a-zA-Z0-9_-]/g, '_')}.ics`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
 }
 
 /**

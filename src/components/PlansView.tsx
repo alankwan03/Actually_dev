@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { HostDashboard, type CatchUpEvent, type OrganicCircle } from './HostDashboard'
+import { type CatchUpEvent, type OrganicCircle } from './HostDashboard'
 import { CalendarPicker } from './CalendarPicker'
 import { PlanDetailView } from './plans/PlanDetailView'
+import { PlansTab } from './plans/PlansTab'
+import { useApp } from '../context/AppContext'
 
 export interface PlansViewProps {
   events: CatchUpEvent[]
@@ -19,16 +21,26 @@ export function PlansView({
   onViewAsGuest,
   userEmail = 'taleisha.kwan@example.com',
 }: PlansViewProps) {
+  const { currentUser } = useApp()
   const [plansTab, setPlansTab] = useState<'events' | 'heatmap'>('events')
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   // Full-screen Host Event Drill-Down and Management View
   if (selectedEventId) {
     const selectedEvent = events.find((e) => String(e.id) === String(selectedEventId))
+    const isHost = Boolean(
+      (selectedEvent?.hostId &&
+        (selectedEvent.hostId === currentUser?.id ||
+          (currentUser?.id === 'contact-tal' && selectedEvent.hostId === 'user_tal'))) ||
+        (!selectedEvent?.hostId &&
+          (currentUser?.id === 'contact-tal' || currentUser?.id === 'user_tal'))
+    )
+
     return (
       <PlanDetailView
         eventId={selectedEventId}
         initialEvent={selectedEvent as any}
+        isHost={isHost}
         onBack={() => setSelectedEventId(null)}
         onPreviewAsGuest={() => {
           if (onViewAsGuest && selectedEvent) {
@@ -51,13 +63,27 @@ export function PlansView({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458]">
-              {userEmail}
+              {currentUser?.email || userEmail}
             </span>
-            <img
-              src="/tal-profile.png"
-              alt="Taleisha"
-              className="w-8 h-8 rounded-full object-cover border-2 border-[#F4C8C2] shadow-xs"
-            />
+            {currentUser?.avatarUrl ? (
+              currentUser.avatarUrl.startsWith('/') || currentUser.avatarUrl.startsWith('http') ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.name}
+                  className="w-8 h-8 rounded-full object-cover border-2 border-[#F4C8C2] shadow-xs"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-xs flex items-center justify-center text-sm">
+                  {currentUser.avatarUrl}
+                </div>
+              )
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#F4C8C2] text-[#8B1E28] font-bold text-xs flex items-center justify-center border border-[#8B1E28]/20 shadow-xs">
+                {currentUser?.name && currentUser.name !== 'Guest'
+                  ? currentUser.name.charAt(0).toUpperCase()
+                  : '?'}
+              </div>
+            )}
           </div>
         </div>
 
@@ -115,16 +141,13 @@ export function PlansView({
         </div>
       </div>
 
-      {/* Sub-tab 1: Events & Circles Management */}
+      {/* Sub-tab 1: Events Management (Hosting vs Invited) */}
       {plansTab === 'events' && (
-        <HostDashboard
+        <PlansTab
           events={events}
-          circles={circles}
           onCreateNew={onCreateNew}
           onViewAsGuest={onViewAsGuest}
           onSelectEvent={(evt) => setSelectedEventId(evt.id)}
-          userEmail={userEmail}
-          hideHeader={true}
         />
       )}
 

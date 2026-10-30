@@ -12,4 +12,5 @@ export interface Circle {
   name: string
   emoji?: string
   memberIds: string[]
+  creatorId?: string
 }

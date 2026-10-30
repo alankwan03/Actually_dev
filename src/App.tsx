@@ -121,6 +121,8 @@ export default function App() {
   const {
     currentUser,
     events,
+    userEvents,
+    userCircles,
     isColdVisitor,
     claimGuestIdentity,
     updateContactProfile,
@@ -130,10 +132,10 @@ export default function App() {
   } = useApp()
 
   // App User & Profile dynamically synced with currentUser
-  const userName = currentUser?.name?.split(' ')[0] || 'Friend'
-  const userFullName = currentUser?.name || 'Friend'
-  const userAvatar = currentUser?.avatarUrl || '/tal-profile.png'
-  const [userEmail, setUserEmail] = useState<string>('taleisha.kwan@example.com')
+  const userName = currentUser?.name && currentUser.name !== 'Guest' ? currentUser.name.split(' ')[0] : 'there'
+  const userFullName = currentUser?.name && currentUser.name !== 'Guest' ? currentUser.name : 'Friend'
+  const userAvatar = currentUser?.avatarUrl || ''
+  const userEmail = currentUser?.email || `${(currentUser?.name || 'user').toLowerCase().replace(/\s+/g, '.')}@actually.app`
 
   // Circles
   const [circles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
@@ -330,7 +332,7 @@ export default function App() {
               {/* TAB 2: Plans & Logistics ("In the Works") */}
               {currentTab === 'plans' && (
                 <PlansView
-                  events={events}
+                  events={userEvents}
                   circles={circles}
                   onCreateNew={() => handleStartCreate()}
                   onViewAsGuest={handleViewAsGuest}
@@ -387,7 +389,7 @@ export default function App() {
           <BottomNav
             currentTab={currentTab}
             onSelectTab={(tab) => setCurrentTab(tab)}
-            plansBadgeCount={events.length}
+            plansBadgeCount={userEvents.length}
           />
         )}
 

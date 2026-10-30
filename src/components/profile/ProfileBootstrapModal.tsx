@@ -3,22 +3,41 @@ import { useApp } from '../../context/AppContext'
 
 interface ProfileBootstrapModalProps {
   isOpen: boolean
+  onClose?: () => void
 }
 
-export function ProfileBootstrapModal({ isOpen }: ProfileBootstrapModalProps) {
-  const { completeColdBootstrap } = useApp()
+export function ProfileBootstrapModal({ isOpen, onClose }: ProfileBootstrapModalProps) {
+  const { completeColdBootstrap, setCurrentUser, setIsColdVisitor } = useApp()
   const [name, setName] = useState('')
   const [error, setError] = useState('')
 
   if (!isOpen) return null
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) {
+  const handleGetStarted = (e?: FormEvent) => {
+    if (e) e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
       setError('Please enter your name to get started.')
       return
     }
-    completeColdBootstrap(name.trim())
+
+    const newUser = {
+      id: `user_${Date.now()}`,
+      name: trimmed,
+      avatarUrl: '',
+      isNew: true,
+    }
+
+    setCurrentUser(newUser)
+    try {
+      localStorage.setItem('actually_current_user', JSON.stringify(newUser))
+      localStorage.setItem('actually_cold_bootstrap_completed', 'true')
+    } catch (err) {
+      console.error('Failed to save to localStorage', err)
+    }
+    setIsColdVisitor(false)
+    completeColdBootstrap(trimmed)
+    onClose?.()
   }
 
   return (
@@ -41,7 +60,7 @@ export function ProfileBootstrapModal({ isOpen }: ProfileBootstrapModalProps) {
         </div>
 
         {/* Input Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleGetStarted} className="space-y-4">
           <div>
             <label
               htmlFor="bootstrap-name"

@@ -1,12 +1,14 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react'
 import type { Contact, Circle } from '../types/circle'
 import type { Event, GuestRsvp } from '../types/event'
+import { decodeEventFromUrl } from '../utils/share'
 
 export interface CurrentUser {
   id: string
   name: string
   avatarUrl?: string
   email?: string
+  isNew?: boolean
 }
 
 export const CURRENT_USER: CurrentUser = {
@@ -16,8 +18,62 @@ export const CURRENT_USER: CurrentUser = {
   email: 'taleisha@actually.app',
 }
 
+export function isEventRelevantToUser(event: any, userId?: string): boolean {
+  if (!userId) return false
+  const isTal = userId === 'contact-tal' || userId === 'user_tal'
+
+  // 1. Host
+  if (event.hostId === userId || (isTal && (event.hostId === 'contact-tal' || event.hostId === 'user_tal'))) {
+    return true
+  }
+
+  // 2. Invited member IDs
+  if (
+    Array.isArray(event.invitedMemberIds) &&
+    (event.invitedMemberIds.includes(userId) ||
+      (isTal && (event.invitedMemberIds.includes('contact-tal') || event.invitedMemberIds.includes('user_tal'))))
+  ) {
+    return true
+  }
+
+  // 3. RSVPs record
+  if (event.rsvps) {
+    if (event.rsvps[userId]) return true
+    if (isTal && (event.rsvps['contact-tal'] || event.rsvps['user_tal'])) return true
+  }
+
+  // 4. Attendees
+  if (Array.isArray(event.attendees)) {
+    if (
+      event.attendees.some(
+        (a: any) =>
+          a.contactId === userId || (isTal && (a.contactId === 'contact-tal' || a.contactId === 'user_tal'))
+      )
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function isCircleOwnedByUser(circle: Circle, userId?: string): boolean {
+  if (!userId) return false
+  const isTal = userId === 'contact-tal' || userId === 'user_tal'
+  if (circle.creatorId) {
+    if (circle.creatorId === userId) return true
+    if (isTal && (circle.creatorId === 'contact-tal' || circle.creatorId === 'user_tal')) {
+      return true
+    }
+    return false
+  }
+  // Default legacy mock circles to Taleisha
+  return isTal
+}
+
 interface AppContextType {
   currentUser: CurrentUser
+  setCurrentUser: React.Dispatch<React.SetStateAction<CurrentUser>>
   claimGuestIdentity: (guestId: string) => void
   updateContactProfile: (
     contactId: string,
@@ -25,7 +81,9 @@ interface AppContextType {
   ) => void
   contacts: Contact[]
   circles: Circle[]
+  userCircles: Circle[]
   events: Event[]
+  userEvents: Event[]
   createCircle: (circleData: Omit<Circle, 'id'>) => Circle
   updateCircle: (circle: Circle) => void
   deleteCircle: (circleId: string) => void
@@ -79,10 +137,12 @@ interface AppContextType {
   upsertEventFromLink: (eventData: Partial<Event> & { id: string }) => Event
   switchPersona: (personaId: string) => void
   isColdVisitor: boolean
+  setIsColdVisitor: React.Dispatch<React.SetStateAction<boolean>>
   completeColdBootstrap: (name: string) => void
 }
 
 const STORAGE_KEYS = {
+  CURRENT_USER: 'actually_current_user',
   CONTACTS: 'actually_contacts',
   CIRCLES: 'actually_circles',
   EVENTS: 'actually_events',
@@ -144,18 +204,21 @@ const SEED_CIRCLES: Circle[] = [
     id: 'circle-inner',
     name: 'Inner Circle',
     emoji: '✨',
+    creatorId: 'contact-tal',
     memberIds: ['contact-tal', 'contact-maya', 'contact-sophie'],
   },
   {
     id: 'circle-brunch',
     name: 'Sunday Brunchers',
     emoji: '🥞',
+    creatorId: 'contact-tal',
     memberIds: ['contact-tal', 'contact-maya', 'contact-liam', 'contact-sophie'],
   },
   {
     id: 'circle-run',
     name: 'Run Club',
     emoji: '🏃',
+    creatorId: 'contact-tal',
     memberIds: ['contact-tal', 'contact-liam', 'contact-dave'],
   },
 ]
@@ -219,6 +282,9 @@ const SEED_EVENTS: Event[] = [
     startTime: '7:00 PM',
     endTime: '11:30 PM',
     location: "Sarah's place or Gertrude St",
+    hostId: 'contact-tal',
+    hostName: 'Taleisha Kwan',
+    hostAvatar: '/tal-profile.png',
     invitedMemberIds: [
       'contact-tal',
       'contact-maya',
@@ -264,6 +330,9 @@ const SEED_EVENTS: Event[] = [
     startTime: '10:00 AM',
     endTime: '2:00 PM',
     location: 'Higher Ground Cafe',
+    hostId: 'contact-tal',
+    hostName: 'Taleisha Kwan',
+    hostAvatar: '/tal-profile.png',
     invitedMemberIds: ['contact-tal', 'contact-maya', 'contact-liam', 'contact-sophie'],
     rsvps: {
       'contact-tal': { contactId: 'contact-tal', status: 'accepted' },
@@ -295,6 +364,9 @@ const SEED_EVENTS: Event[] = [
     startTime: '5:00 PM',
     endTime: '10:00 PM',
     location: "Mark's apartment",
+    hostId: 'contact-tal',
+    hostName: 'Taleisha Kwan',
+    hostAvatar: '/tal-profile.png',
     invitedMemberIds: ['contact-tal', 'contact-liam', 'contact-dave'],
     rsvps: {
       'contact-tal': { contactId: 'contact-tal', status: 'accepted' },
@@ -341,11 +413,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ) {
         return false
       }
+      const hasStoredUser = !!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)
       const hasCompletedBootstrap =
         localStorage.getItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED) === 'true'
       const hasGuestIdentity = !!localStorage.getItem(STORAGE_KEYS.GUEST_IDENTITY)
       const hasActiveUserId = !!localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID)
-      if (!hasCompletedBootstrap && !hasGuestIdentity && !hasActiveUserId) {
+      if (!hasStoredUser && !hasCompletedBootstrap && !hasGuestIdentity && !hasActiveUserId) {
         return true
       }
     } catch {
@@ -357,6 +430,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser>(() => {
     try {
       if (typeof window !== 'undefined') {
+        const storedUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER)
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser)
+          if (parsed?.id && parsed?.name) {
+            return parsed
+          }
+        }
+
         const params = new URLSearchParams(window.location.search)
         const isInvite =
           params.get('view') === 'guest' ||
@@ -421,10 +502,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [circles, setCircles] = useState<Circle[]>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEYS.CIRCLES)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const isInvite =
+          params.get('view') === 'guest' ||
+          Boolean(params.get('eventId')) ||
+          Boolean(params.get('d')) ||
+          Boolean(params.get('guestId'))
+        const stored = localStorage.getItem(STORAGE_KEYS.CIRCLES)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed)) return parsed
+        }
+        if (isInvite) {
+          return []
+        }
       }
     } catch {
       // fallback to seed
@@ -434,23 +526,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [events, setEvents] = useState<Event[]>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEYS.EVENTS)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const hasIncoming = parsed.some(
-            (e: any) => e.hostId && e.hostId !== 'contact-tal' && e.hostId !== 'user_tal'
-          )
-          const refreshedList = parsed.map((e: any) => {
-            if (e.id === 'evt-1' && (!e.invitedMemberIds || e.invitedMemberIds.length === 3)) {
-              return SEED_EVENTS.find((s) => s.id === 'evt-1') || e
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const isInvite =
+          params.get('view') === 'guest' ||
+          Boolean(params.get('eventId')) ||
+          Boolean(params.get('d')) ||
+          Boolean(params.get('guestId'))
+        const stored = localStorage.getItem(STORAGE_KEYS.EVENTS)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const hasIncoming = parsed.some(
+              (e: any) => e.hostId && e.hostId !== 'contact-tal' && e.hostId !== 'user_tal'
+            )
+            const refreshedList = parsed.map((e: any) => {
+              if (e.id === 'evt-1' && (!e.invitedMemberIds || e.invitedMemberIds.length === 3)) {
+                return SEED_EVENTS.find((s) => s.id === 'evt-1') || e
+              }
+              return e
+            })
+            if (!hasIncoming && !isInvite) {
+              return [...SEED_INCOMING_EVENTS, ...refreshedList]
             }
-            return e
-          })
-          if (!hasIncoming) {
-            return [...SEED_INCOMING_EVENTS, ...refreshedList]
+            return refreshedList
           }
-          return refreshedList
+        }
+        if (isInvite) {
+          const d = params.get('d')
+          if (d) {
+            const decoded = decodeEventFromUrl(d)
+            if (decoded) {
+              return [decoded]
+            }
+          }
+          const eventId = params.get('eventId')
+          if (eventId) {
+            const matched = [...SEED_INCOMING_EVENTS, ...SEED_EVENTS].find((e) => e.id === eventId)
+            if (matched) return [matched]
+          }
+          return []
         }
       }
     } catch {
@@ -486,6 +601,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [events])
 
+  // Persist currentUser whenever it changes
+  useEffect(() => {
+    try {
+      if (currentUser && currentUser.id !== 'temp-guest') {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser))
+      }
+    } catch (e) {
+      console.error('Failed to persist currentUser', e)
+    }
+  }, [currentUser])
+
   const getContactById = (id: string): Contact | undefined => {
     return contacts.find((c) => c.id === id)
   }
@@ -494,6 +620,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const newCircle: Circle = {
       ...circleData,
       id: `circle-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      creatorId: circleData.creatorId || currentUser.id,
     }
     setCircles((prev) => [...prev, newCircle])
     return newCircle
@@ -560,6 +687,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       endTime: eventData.endTime,
       endsNextDay: eventData.endsNextDay,
       location: eventData.location?.trim() || undefined,
+      hostId: currentUser.id,
+      hostName: currentUser.name,
+      hostAvatar: currentUser.avatarUrl,
       invitedMemberIds: eventData.invitedMemberIds,
       rsvps,
       createdAt: new Date().toISOString(),
@@ -572,7 +702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       repliesCount: 0,
       inviteCode: `actually.app/${eventData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       attendees: [
-        { contactId: 'contact-tal', name: 'Taleisha Kwan', status: 'attending' },
+        { contactId: currentUser.id, name: currentUser.name, status: 'attending' },
       ],
     }
     setEvents((prev) => [newEvent, ...prev])
@@ -841,6 +971,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const switchPersona = (personaId: string) => {
     if (personaId === 'new_visitor') {
       try {
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER)
         localStorage.removeItem(STORAGE_KEYS.GUEST_IDENTITY)
         localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID)
         localStorage.removeItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED)
@@ -860,6 +991,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       claimGuestIdentity(contact.id)
     } else if (personaId === 'contact-tal') {
       try {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(CURRENT_USER))
         localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, 'contact-tal')
         localStorage.setItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED, 'true')
         localStorage.removeItem(STORAGE_KEYS.GUEST_IDENTITY)
@@ -874,12 +1006,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const completeColdBootstrap = (name: string) => {
     const trimmed = name.trim() || 'New Friend'
     const newContact = createContact({ name: trimmed })
+    const newUser: CurrentUser = {
+      id: newContact.id,
+      name: trimmed,
+      avatarUrl: '',
+      isNew: true,
+    }
     try {
       localStorage.setItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED, 'true')
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(newUser))
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, newContact.id)
+      localStorage.setItem(
+        STORAGE_KEYS.GUEST_IDENTITY,
+        JSON.stringify({ guestId: newContact.id, name: trimmed, avatarUrl: '' })
+      )
     } catch (e) {
-      console.error(e)
+      console.error('Failed to persist bootstrap identity', e)
     }
-    claimGuestIdentity(newContact.id)
+    setIsColdVisitor(false)
+    setCurrentUser(newUser)
   }
 
   const upsertEventFromLink = (incoming: Partial<Event> & { id: string }): Event => {
@@ -976,19 +1121,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const userEvents = useMemo(() => {
+    return events.filter((e) => isEventRelevantToUser(e, currentUser?.id))
+  }, [events, currentUser?.id])
+
+  const userCircles = useMemo(() => {
+    return circles.filter((c) => isCircleOwnedByUser(c, currentUser?.id))
+  }, [circles, currentUser?.id])
+
   return (
     <AppContext.Provider
       value={{
         currentUser,
+        setCurrentUser,
         claimGuestIdentity,
         switchPersona,
         isColdVisitor,
+        setIsColdVisitor,
         completeColdBootstrap,
         upsertEventFromLink,
         updateContactProfile,
         contacts,
         circles,
+        userCircles,
         events,
+        userEvents,
         createCircle,
         updateCircle,
         deleteCircle,

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useApp } from '../../context/AppContext'
 
 interface DevPersonaSwitcherProps {
@@ -12,6 +13,7 @@ export function DevPersonaSwitcher({
   currentTab,
 }: DevPersonaSwitcherProps) {
   const { currentUser, switchPersona } = useApp()
+  const [isGuestMenuOpen, setIsGuestMenuOpen] = useState(false)
 
   const personas = [
     { id: 'contact-tal', label: 'Taleisha (Host)', role: 'Host' },
@@ -20,6 +22,105 @@ export function DevPersonaSwitcher({
   ]
 
   const isFreshVisitor = currentUser.id === 'temp-guest'
+
+  // If viewing as guest, tuck dev controls behind a discreet floating button in the bottom-left corner
+  if (currentView === 'guest') {
+    if (!isGuestMenuOpen) {
+      return (
+        <button
+          type="button"
+          onClick={() => setIsGuestMenuOpen(true)}
+          className="fixed bottom-3 left-3 z-50 bg-[#1C1614]/75 hover:bg-[#1C1614] text-[#FAF7F2] p-2 rounded-full shadow-lg border border-white/20 text-xs flex items-center gap-1 cursor-pointer backdrop-blur-xs transition opacity-70 hover:opacity-100"
+          title="Open Dev Persona Switcher"
+        >
+          <span>🛠️</span>
+          <span className="text-[10px] font-bold pr-1 text-[#D4C3B7]">Dev</span>
+        </button>
+      )
+    }
+
+    return (
+      <div className="fixed bottom-3 left-3 z-50 bg-[#1C1614] text-[#FAF7F2] p-3 rounded-2xl shadow-2xl border border-[#3E322D] text-xs max-w-xs animate-in zoom-in-95 duration-150 select-none">
+        <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#D4C3B7]">
+              Dev Controls
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsGuestMenuOpen(false)}
+            className="text-white/60 hover:text-white text-xs font-bold px-1"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-[#A39286]">Viewing As:</span>
+            <span className="font-bold text-[#F4C8C2] truncate max-w-[120px]">
+              {currentUser.name}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1">
+            {personas.map((p) => {
+              const isActive = currentUser.id === p.id
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => switchPersona(p.id)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-[#8B1E28] text-white shadow-xs font-semibold'
+                      : 'bg-white/10 text-[#D4C3B7] hover:bg-white/20'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => switchPersona('new_visitor')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+                isFreshVisitor
+                  ? 'bg-amber-600 text-white font-semibold'
+                  : 'bg-white/10 text-[#D4C3B7] hover:bg-amber-600/30'
+              }`}
+            >
+              + Cold Visitor
+            </button>
+          </div>
+
+          {onSwitchView && (
+            <div className="border-t border-white/10 pt-1.5 flex items-center justify-between text-[10px] text-[#A39286]">
+              <span>Exit Guest:</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onSwitchView('tabs', 'home')}
+                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white font-semibold cursor-pointer"
+                >
+                  Home Tab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSwitchView('tabs', 'plans')}
+                  className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white font-semibold cursor-pointer"
+                >
+                  Plans
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-[#1C1614] text-[#FAF7F2] py-2 px-3 border-b border-[#3E322D] text-xs select-none">

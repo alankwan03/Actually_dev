@@ -19,15 +19,25 @@ export function HomeView({
   onImFree,
   onSelectPlan,
   onViewInvite,
-  userName = 'Taleisha',
-  userAvatar = '/tal-profile.png',
+  userName,
+  userAvatar,
 }: HomeViewProps) {
-  const { events, currentUser, recordGuestRsvp } = useApp()
+  const { userEvents, currentUser, recordGuestRsvp } = useApp()
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  const resolvedName =
+    currentUser?.name && currentUser.name !== 'Guest'
+      ? currentUser.name.split(' ')[0]
+      : userName && userName !== 'Guest'
+      ? userName.split(' ')[0]
+      : 'there'
+
+  const resolvedAvatar =
+    currentUser?.avatarUrl !== undefined ? currentUser.avatarUrl : userAvatar || ''
 
   // Filter incoming pending invites where currentUser was invited by a friend
   const incomingInvites = useMemo(() => {
-    return events.filter((e) => {
+    return userEvents.filter((e) => {
       const isNotHost =
         e.hostId &&
         e.hostId !== currentUser.id &&
@@ -38,16 +48,16 @@ export function HomeView({
         e.rsvps?.[currentUser.id]?.status || e.rsvps?.['user_tal']?.status
       return myRsvp === 'pending'
     })
-  }, [events, currentUser.id])
+  }, [userEvents, currentUser.id])
 
   // Find next upcoming confirmed or active plan
   const nextUpEvent = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0]
-    const upcoming = events
+    const upcoming = userEvents
       .filter((e) => e.date && e.date >= todayStr)
       .sort((a, b) => (a.date > b.date ? 1 : -1))
     return upcoming[0] || null
-  }, [events])
+  }, [userEvents])
 
   const handleQuickAccept = (event: Event) => {
     recordGuestRsvp(event.id, currentUser.id, 'accepted')
@@ -69,15 +79,23 @@ export function HomeView({
 
           {/* Profile Avatar */}
           <div className="flex items-center gap-2">
-            {userAvatar.startsWith('/') || userAvatar.startsWith('http') ? (
-              <img
-                src={userAvatar}
-                alt={userName}
-                className="w-12 h-12 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
-              />
+            {resolvedAvatar ? (
+              resolvedAvatar.startsWith('/') || resolvedAvatar.startsWith('http') ? (
+                <img
+                  src={resolvedAvatar}
+                  alt={resolvedName}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-xl">
+                  {resolvedAvatar}
+                </div>
+              )
             ) : (
-              <div className="w-12 h-12 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-2xl">
-                {userAvatar}
+              <div className="w-10 h-10 rounded-full bg-[#F4C8C2] text-[#8B1E28] font-bold text-sm flex items-center justify-center border border-[#8B1E28]/20 shadow-xs">
+                {resolvedName && resolvedName !== 'there'
+                  ? resolvedName.charAt(0).toUpperCase()
+                  : '?'}
               </div>
             )}
           </div>
@@ -89,8 +107,8 @@ export function HomeView({
             Welcome Back
           </p>
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-black text-[#2B231F] tracking-tight">
-              Hey, {userName} ✨
+            <h1 className="text-2xl sm:text-3xl font-black text-[#2B231F] tracking-tight">
+              Hey, {resolvedName} ✨
             </h1>
             <span className="text-2xl">👋</span>
           </div>
@@ -206,7 +224,7 @@ export function HomeView({
       {/* 3. YOUR SCHEDULE: 14-Day Social Ribbon */}
       <section>
         <SocialRibbon
-          events={events}
+          events={userEvents}
           onSelectPlan={onSelectPlan}
           onMakePlanForDate={(dateISO) => onMakePlan(dateISO)}
         />

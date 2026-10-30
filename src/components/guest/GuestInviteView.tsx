@@ -5,7 +5,7 @@ import { CounterProposalModal } from './CounterProposalModal'
 import { PwaInstallPromptCard } from './PwaInstallPrompt'
 import { FirstTimeProfileModal } from '../profile/FirstTimeProfileModal'
 import { formatTimeDisplay } from '../../utils/time'
-import { getEventInviteUrl, generateInviteUrl, decodeEventFromUrl } from '../../utils/share'
+import { generateInviteUrl, decodeEventFromUrl, downloadEventIcs } from '../../utils/share'
 
 export interface GuestInviteViewProps {
   eventId?: string
@@ -50,10 +50,33 @@ export function GuestInviteView({
   initialEvent,
   guestId: propGuestId,
   onBackToDashboard,
-  showTestingBar = true,
   onNavigateToHome,
 }: GuestInviteViewProps) {
-  const { events, contacts, getContactById, recordGuestRsvp, claimGuestIdentity, upsertEventFromLink } = useApp()
+  const {
+    events,
+    getContactById,
+    createContact,
+    recordGuestRsvp,
+    claimGuestIdentity,
+    upsertEventFromLink,
+  } = useApp()
+
+  // Available events (fallback to DEFAULT_SAMPLE_EVENT if none exist)
+  const availableEvents = useMemo(() => {
+    if (events && events.length > 0) return events
+    return [DEFAULT_SAMPLE_EVENT]
+  }, [events])
+
+  // Track currently selected plan
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(() => {
+    if (initialEvent?.id) return String(initialEvent.id)
+    if (eventId) return String(eventId)
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('eventId')
+      if (q) return q
+    }
+    return String(availableEvents[0]?.id || DEFAULT_SAMPLE_EVENT.id)
+  })
 
   // On mount, check if there is an encoded event snapshot in query param 'd'
   useEffect(() => {
@@ -69,23 +92,6 @@ export function GuestInviteView({
       }
     }
   }, [upsertEventFromLink])
-
-  // Available events (fallback to DEFAULT_SAMPLE_EVENT if none exist)
-  const availableEvents = useMemo(() => {
-    if (events && events.length > 0) return events
-    return [DEFAULT_SAMPLE_EVENT]
-  }, [events])
-
-  // Track currently selected plan for preview/testing
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(() => {
-    if (initialEvent?.id) return String(initialEvent.id)
-    if (eventId) return String(eventId)
-    if (typeof window !== 'undefined') {
-      const q = new URLSearchParams(window.location.search).get('eventId')
-      if (q) return q
-    }
-    return String(availableEvents[0]?.id || DEFAULT_SAMPLE_EVENT.id)
-  })
 
   // Synchronize when eventId or initialEvent props change
   useEffect(() => {
@@ -105,72 +111,97 @@ export function GuestInviteView({
     return found || availableEvents[0] || DEFAULT_SAMPLE_EVENT
   }, [availableEvents, selectedPlanId])
 
-  // Guest Identity Resolution
+  // Inbound Guest Identity Claiming
+  const [claimedGuest, setClaimedGuest] = useState<{
+    id: string
+    name: string
+    avatarUrl?: string
+  } | null>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const storedClaim = localStorage.getItem('actually_claimed_guest')
+        if (storedClaim) {
+          const parsed = JSON.parse(storedClaim)
+          if (parsed?.id && parsed?.name) return parsed
+        }
+        const storedIdentity = localStorage.getItem('actually_guest_identity')
+        if (storedIdentity) {
+          const parsed = JSON.parse(storedIdentity)
+          if (parsed?.guestId && parsed?.name && parsed.name !== 'Guest') {
+            return {
+              id: parsed.guestId,
+              name: parsed.name,
+              avatarUrl: parsed.avatarUrl,
+            }
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    if (propGuestId) {
+      const c = getContactById(propGuestId)
+      if (c) return { id: c.id, name: c.name, avatarUrl: c.avatarUrl }
+    }
+    return null
+  })
+
   const [activeGuestId, setActiveGuestId] = useState<string>(() => {
+    if (claimedGuest?.id) return claimedGuest.id
     if (propGuestId) return propGuestId
     if (typeof window !== 'undefined') {
       const q = new URLSearchParams(window.location.search).get('guestId')
       if (q) return q
     }
-    const effectiveHostId = currentEvent.hostId || 'contact-tal'
-    if (effectiveHostId !== 'contact-tal' && currentEvent.invitedMemberIds?.includes('contact-tal')) {
-      return 'contact-tal'
-    }
-    const nonHost = currentEvent.invitedMemberIds?.find((id) => id !== effectiveHostId)
-    return nonHost || 'contact-maya'
+    return ''
   })
 
+  // Synchronize activeGuestId with claimedGuest or props
   useEffect(() => {
+    if (claimedGuest?.id) {
+      setActiveGuestId(claimedGuest.id)
+      return
+    }
     if (propGuestId) {
       setActiveGuestId(propGuestId)
+      const contact = getContactById(propGuestId)
+      if (contact) {
+        setClaimedGuest({
+          id: contact.id,
+          name: contact.name,
+          avatarUrl: contact.avatarUrl,
+        })
+      }
       return
     }
     if (typeof window !== 'undefined') {
       const q = new URLSearchParams(window.location.search).get('guestId')
       if (q) {
         setActiveGuestId(q)
-        return
+        const contact = getContactById(q)
+        if (contact) {
+          setClaimedGuest({
+            id: contact.id,
+            name: contact.name,
+            avatarUrl: contact.avatarUrl,
+          })
+        }
       }
     }
-    // Default to first non-host guest for this plan if current activeGuestId is not in invited list
-    const isCurrentInvited = currentEvent.invitedMemberIds?.includes(activeGuestId)
-    if (!isCurrentInvited) {
-      const effectiveHostId = currentEvent.hostId || 'contact-tal'
-      if (effectiveHostId !== 'contact-tal' && currentEvent.invitedMemberIds?.includes('contact-tal')) {
-        setActiveGuestId('contact-tal')
-      } else {
-        const nonHost = currentEvent.invitedMemberIds?.find((id) => id !== effectiveHostId)
-        if (nonHost) setActiveGuestId(nonHost)
-      }
-    }
-  }, [currentEvent, propGuestId])
+  }, [claimedGuest, propGuestId, getContactById])
 
+  const [isOtherGuestInputOpen, setIsOtherGuestInputOpen] = useState(false)
+  const [otherGuestName, setOtherGuestName] = useState('')
   const [isChangingResponse, setIsChangingResponse] = useState(false)
   const [isCounterProposalOpen, setIsCounterProposalOpen] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null)
 
-  // Seed guest identity when mounting with an active guest ID
-  useEffect(() => {
-    if (activeGuestId) {
-      const contact = getContactById(activeGuestId)
-      const name = contact?.name || 'Friend'
-      try {
-        localStorage.setItem(
-          'actually_guest_identity',
-          JSON.stringify({ guestId: activeGuestId, name, avatarUrl: contact?.avatarUrl })
-        )
-      } catch (e) {
-        console.error(e)
-      }
-    }
-  }, [activeGuestId, getContactById])
-
   // Current active guest contact details
   const activeGuestContact = useMemo(() => {
-    if (!activeGuestId) return undefined
-    return getContactById(activeGuestId)
-  }, [activeGuestId, getContactById])
+    if (!activeGuestId) return claimedGuest || undefined
+    return getContactById(activeGuestId) || claimedGuest || undefined
+  }, [activeGuestId, getContactById, claimedGuest])
 
   // Current Guest RSVP state
   const currentRsvp: GuestRsvp | undefined = useMemo(() => {
@@ -197,20 +228,40 @@ export function GuestInviteView({
     })
   }, [currentEvent, getContactById])
 
-  // All invited friends for this plan (for testing & switching)
-  const planGuests = useMemo(() => {
-    const invited = currentEvent.invitedMemberIds || ['contact-maya', 'contact-liam', 'contact-sophie']
+  // Inbound invited guest list for 1-tap claim pills
+  const invitedGuestList = useMemo(() => {
+    // 1. Check if event snapshot carried invitedMembers array with names
+    const snapshotMembers = (currentEvent as any).invitedMembers
+    if (Array.isArray(snapshotMembers) && snapshotMembers.length > 0) {
+      return snapshotMembers.filter(
+        (m: any) => m.id !== (currentEvent.hostId || 'contact-tal')
+      )
+    }
+
+    // 2. Fallback: map invitedMemberIds
+    const invited =
+      currentEvent.invitedMemberIds || ['contact-maya', 'contact-liam', 'contact-sophie']
+    const hostId = currentEvent.hostId || 'contact-tal'
     return invited
-      .filter((id) => id !== 'contact-tal')
+      .filter((id) => id !== hostId)
       .map((id) => {
         const contact = getContactById(id)
+        const fallbackName =
+          id === 'contact-maya'
+            ? 'Maya Lin'
+            : id === 'contact-liam'
+            ? 'Liam Chen'
+            : id === 'contact-sophie'
+            ? 'Sophie Martin'
+            : id === 'contact-dave'
+            ? 'Dave Wilson'
+            : id === 'contact-sam'
+            ? 'Sam Miller'
+            : id.replace('contact-', '')
         return {
           id,
-          name: contact?.name || (id === 'contact-maya' ? 'Maya Lin' : id === 'contact-liam' ? 'Liam Chen' : id === 'contact-sophie' ? 'Sophie Martin' : 'Friend'),
+          name: contact?.name || fallbackName,
           avatarUrl: contact?.avatarUrl,
-          initials: contact?.initials || 'FR',
-          status: currentEvent.rsvps?.[id]?.status || 'pending',
-          nudged: Boolean(currentEvent.rsvps?.[id]?.nudged),
         }
       })
   }, [currentEvent, getContactById])
@@ -239,9 +290,46 @@ export function GuestInviteView({
   const hostFirstName = hostDisplayName.split(' ')[0]
   const hostDisplayAvatar = currentEvent.hostAvatar || '/tal-profile.png'
 
+  // Claim a pre-listed friend slot
+  const handleClaimSlot = (guest: { id: string; name: string; avatarUrl?: string }) => {
+    setClaimedGuest(guest)
+    setActiveGuestId(guest.id)
+    try {
+      localStorage.setItem('actually_claimed_guest', JSON.stringify(guest))
+      localStorage.setItem(
+        'actually_guest_identity',
+        JSON.stringify({ guestId: guest.id, name: guest.name, avatarUrl: guest.avatarUrl })
+      )
+    } catch {
+      // ignore
+    }
+    claimGuestIdentity(guest.id)
+    setFeedbackToast(`Identified as ${guest.name.split(' ')[0]} ✨`)
+    setTimeout(() => setFeedbackToast(null), 2500)
+  }
+
+  // Claim as new or unlisted attendee
+  const handleConfirmOtherGuest = () => {
+    const trimmed = otherGuestName.trim()
+    if (!trimmed) return
+    const newContact = createContact({ name: trimmed })
+    const guestObj = {
+      id: newContact.id,
+      name: newContact.name,
+      avatarUrl: newContact.avatarUrl,
+    }
+    handleClaimSlot(guestObj)
+    setIsOtherGuestInputOpen(false)
+    setOtherGuestName('')
+  }
+
   // Actions
   const handleAccept = () => {
-    if (!activeGuestId) return
+    if (!activeGuestId) {
+      setFeedbackToast('Please tap your name above to claim your spot! 👆')
+      setTimeout(() => setFeedbackToast(null), 3000)
+      return
+    }
     recordGuestRsvp(currentEvent.id, activeGuestId, 'accepted')
     claimGuestIdentity(activeGuestId)
     setIsChangingResponse(false)
@@ -250,10 +338,14 @@ export function GuestInviteView({
   }
 
   const handleDecline = () => {
-    if (!activeGuestId) return
+    if (!activeGuestId) {
+      setFeedbackToast('Please tap your name above to claim your spot! 👆')
+      setTimeout(() => setFeedbackToast(null), 3000)
+      return
+    }
     recordGuestRsvp(currentEvent.id, activeGuestId, 'declined')
     setIsChangingResponse(false)
-    setFeedbackToast("Response recorded. Hope to catch you next time! 💔")
+    setFeedbackToast('Response recorded. Hope to catch you next time! 💔')
     setTimeout(() => setFeedbackToast(null), 3500)
   }
 
@@ -263,7 +355,11 @@ export function GuestInviteView({
     endTime: string
     note?: string
   }) => {
-    if (!activeGuestId) return
+    if (!activeGuestId) {
+      setFeedbackToast('Please tap your name above to claim your spot! 👆')
+      setTimeout(() => setFeedbackToast(null), 3000)
+      return
+    }
     recordGuestRsvp(currentEvent.id, activeGuestId, 'counter_proposed', proposal)
     setIsCounterProposalOpen(false)
     setIsChangingResponse(false)
@@ -271,103 +367,49 @@ export function GuestInviteView({
     setTimeout(() => setFeedbackToast(null), 3500)
   }
 
+  const handleDownloadIcsFile = () => {
+    downloadEventIcs(currentEvent)
+    setFeedbackToast('Calendar file (.ics) downloaded! 📅')
+    setTimeout(() => setFeedbackToast(null), 3000)
+  }
+
   const handleAddToCalendar = () => {
     const title = encodeURIComponent(currentEvent.title)
     const location = encodeURIComponent(currentEvent.location || '')
     const details = encodeURIComponent(
-      `Actually Catch-up with friends! RSVP link: ${generateInviteUrl(currentEvent, activeGuestId)}`
+      `Actually Catch-up with friends! RSVP link: ${generateInviteUrl(currentEvent)}`
     )
     const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&location=${location}&details=${details}`
     window.open(googleCalUrl, '_blank')
   }
 
+  const handleNavigateHome = () => {
+    if (onNavigateToHome) {
+      onNavigateToHome({
+        id: activeGuestId,
+        name: claimedGuest?.name || activeGuestContact?.name,
+        avatarUrl: claimedGuest?.avatarUrl || activeGuestContact?.avatarUrl,
+      })
+    } else if (onBackToDashboard) {
+      onBackToDashboard()
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto min-h-screen bg-[#FAFAFA] p-5 flex flex-col justify-between text-[#1F2937] select-none">
       <div>
-        {/* Top Development / Inspection Bar */}
-        {showTestingBar && (
-          <div className="bg-[#2D231F] text-[#FAF7F2] p-3 -mx-5 -mt-5 mb-4 border-b border-white/10 space-y-2 select-none shadow-sm">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="font-bold text-[#D4C3B7] uppercase tracking-wider flex items-center gap-1.5">
-                <span>🧪</span>
-                <span>Guest Preview Inspector</span>
-              </span>
-              {onBackToDashboard && (
-                <button
-                  type="button"
-                  onClick={onBackToDashboard}
-                  className="px-2 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-bold transition cursor-pointer text-[10px]"
-                >
-                  ✕ Exit Guest View
-                </button>
-              )}
-            </div>
-
-            {/* 1. Plan Selector Dropdown */}
-            <div className="flex items-center gap-2 text-xs">
-              <label className="text-[#D4C3B7] text-[11px] font-semibold shrink-0">Plan:</label>
-              <select
-                value={currentEvent.id}
-                onChange={(e) => {
-                  setSelectedPlanId(e.target.value)
-                  setIsChangingResponse(false)
-                }}
-                className="w-full bg-[#3D302A] text-white border border-white/20 rounded-lg px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#F4C8C2] cursor-pointer"
-              >
-                {availableEvents.map((evt) => (
-                  <option key={evt.id} value={evt.id}>
-                    {evt.title} ({evt.date || evt.datesProposed || 'Upcoming'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 2. Guest Selector Pills */}
-            <div className="flex items-center gap-1.5 text-xs pt-0.5">
-              <span className="text-[#D4C3B7] text-[11px] font-semibold shrink-0">View as:</span>
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-                {planGuests.map((g) => {
-                  const isSelected = g.id === activeGuestId
-                  return (
-                    <button
-                      key={g.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveGuestId(g.id)
-                        setIsChangingResponse(false)
-                      }}
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 transition flex items-center gap-1 cursor-pointer ${
-                        isSelected
-                          ? 'bg-[#8B1E28] text-white ring-1 ring-[#F4C8C2]'
-                          : 'bg-white/15 text-[#D4C3B7] hover:bg-white/25'
-                      }`}
-                    >
-                      <span>{g.name.split(' ')[0]}</span>
-                      {g.status === 'accepted' && <span>✅</span>}
-                      {g.status === 'declined' && <span>💔</span>}
-                      {g.status === 'counter_proposed' && <span>💬</span>}
-                      {g.status === 'pending' && g.nudged && <span>🔔</span>}
-                      {g.status === 'pending' && !g.nudged && <span>⏳</span>}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Brand Header */}
-        <div className="flex items-center justify-between pb-3 mb-2 border-b border-[#EFE8DF]">
+        {/* Clean Mobile Brand Header */}
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-[#EFE8DF]">
           <div className="flex items-center gap-1.5">
             <span className="text-xl font-extrabold text-[#8B1E28] tracking-tight flex items-center gap-1">
               Actually. <span className="text-base">🍸</span>
             </span>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FDF3F1] text-[#8B1E28] border border-[#F4C8C2]">
-              Guest Invitation
+              Catch-up Invite
             </span>
           </div>
 
-          {onBackToDashboard && !showTestingBar && (
+          {onBackToDashboard && (
             <button
               type="button"
               onClick={onBackToDashboard}
@@ -378,7 +420,7 @@ export function GuestInviteView({
           )}
         </div>
 
-        {/* Host Card */}
+        {/* Host Profile Header */}
         <div className="flex items-center gap-3 mb-4 px-1">
           {hostDisplayAvatar.startsWith('/') || hostDisplayAvatar.startsWith('http') ? (
             <img
@@ -395,9 +437,16 @@ export function GuestInviteView({
             <p className="text-xs font-medium text-[#7A6458]">
               <strong className="text-[#2B231F] font-bold">{hostDisplayName}</strong> invited you to catch up!
             </p>
-            {activeGuestContact && (
-              <p className="text-[11px] text-[#8B1E28] font-bold mt-0.5">
-                Responding as: {activeGuestContact.name}
+            {claimedGuest && (
+              <p className="text-[11px] text-[#8B1E28] font-bold mt-0.5 flex items-center gap-1">
+                <span>Responding as: {claimedGuest.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setClaimedGuest(null)}
+                  className="text-[10px] text-gray-400 hover:text-[#8B1E28] underline ml-1 cursor-pointer font-normal"
+                >
+                  (Switch)
+                </button>
               </p>
             )}
           </div>
@@ -429,7 +478,9 @@ export function GuestInviteView({
             </div>
             <div className="flex items-center gap-2.5 text-xs text-[#8B1E28] font-bold">
               <span className="text-base">⏰</span>
-              <span>{formatTimeDisplay(currentEvent.startTime)} – {formatTimeDisplay(currentEvent.endTime)}</span>
+              <span>
+                {formatTimeDisplay(currentEvent.startTime)} – {formatTimeDisplay(currentEvent.endTime)}
+              </span>
             </div>
             {currentEvent.location && (
               <div className="flex items-center gap-2.5 text-xs text-[#55463D] font-medium pt-1 border-t border-[#EDE5DA]/60">
@@ -463,12 +514,68 @@ export function GuestInviteView({
           </div>
         </div>
 
+        {/* 1-Tap Name Selection ("Who are you?") if not claimed yet */}
+        {!claimedGuest && (
+          <div className="bg-white border-2 border-[#F4C8C2] rounded-3xl p-4.5 my-4 shadow-sm text-center space-y-3 animate-in fade-in">
+            <div>
+              <p className="text-xs font-black text-[#8B1E28] uppercase tracking-wider">
+                Who's viewing this invite?
+              </p>
+              <p className="text-xs text-[#73655C] mt-0.5">
+                Tap your name to claim your spot and RSVP:
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {invitedGuestList.map((guest) => (
+                <button
+                  key={guest.id}
+                  type="button"
+                  onClick={() => handleClaimSlot(guest)}
+                  className="px-3.5 py-2 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-[#FDF3F1] hover:bg-[#F4C8C2] text-[#8B1E28] border border-[#F4C8C2] active:scale-95 shadow-2xs"
+                >
+                  <span>{guest.name}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setIsOtherGuestInputOpen((prev) => !prev)}
+                className="px-3 py-2 rounded-2xl text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition cursor-pointer"
+              >
+                + Not listed / Someone else
+              </button>
+            </div>
+
+            {isOtherGuestInputOpen && (
+              <div className="pt-2 flex items-center gap-2 justify-center max-w-xs mx-auto animate-in fade-in">
+                <input
+                  type="text"
+                  value={otherGuestName}
+                  onChange={(e) => setOtherGuestName(e.target.value)}
+                  placeholder="Enter your name..."
+                  className="w-full px-3 py-1.5 text-xs rounded-xl border border-[#EDE5DA] bg-[#FAF7F2] focus:outline-none focus:ring-1 focus:ring-[#8B1E28]"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirmOtherGuest()
+                  }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleConfirmOtherGuest}
+                  className="px-3.5 py-1.5 bg-[#8B1E28] text-white text-xs font-bold rounded-xl hover:bg-[#781822] cursor-pointer shrink-0"
+                >
+                  Continue
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Gentle Nudge Callout Banner (Conditional) */}
         {currentStatus === 'pending' && isNudged && (
           <div className="bg-[#F4C8C2]/30 border border-[#F4C8C2] rounded-2xl p-3.5 my-4 flex items-center gap-3 animate-in fade-in">
             <span className="text-xl shrink-0">🔔</span>
             <p className="text-xs text-[#8B1E28] font-medium leading-relaxed">
-              Taleisha gave you a gentle nudge! Let her know if you can make it.
+              {hostFirstName} gave you a gentle nudge! Let them know if you can make it.
             </p>
           </div>
         )}
@@ -476,7 +583,7 @@ export function GuestInviteView({
 
       {/* Response Action Block */}
       <div className="pt-6 space-y-3">
-        {/* State 1: Already Accepted */}
+        {/* State 1: Locked In / Post-RSVP Guided Adoption Screen */}
         {currentStatus === 'accepted' && !isChangingResponse && (
           <div className="space-y-4 animate-in fade-in">
             <div className="bg-white rounded-3xl p-5 border border-emerald-200 shadow-sm space-y-3.5 text-center">
@@ -488,25 +595,45 @@ export function GuestInviteView({
                   You're locked in! 🎉
                 </h3>
                 <p className="text-xs text-[#73655C] mt-1 leading-relaxed">
-                  {hostFirstName} has been notified. We'll keep this plan updated for you.
+                  {hostFirstName} has your RSVP. We'll keep this plan updated for you.
                 </p>
               </div>
 
               <div className="pt-1 space-y-2.5">
-                {/* Primary Transition: Go to My Home Screen */}
+                {/* Step 1: Calendar Sync Button (.ics) */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (onNavigateToHome) {
-                      onNavigateToHome({
-                        id: activeGuestId,
-                        name: activeGuestContact?.name,
-                        avatarUrl: activeGuestContact?.avatarUrl,
-                      })
-                    } else if (onBackToDashboard) {
-                      onBackToDashboard()
-                    }
-                  }}
+                  onClick={handleDownloadIcsFile}
+                  className="w-full py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>📅</span>
+                  <span>Add to Phone Calendar (.ics)</span>
+                </button>
+
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={handleAddToCalendar}
+                    className="text-[11px] font-semibold text-emerald-800 hover:underline cursor-pointer"
+                  >
+                    Or add to Google Calendar →
+                  </button>
+                </div>
+
+                {/* Step 3: Avatar / Profile Customisation */}
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-2xl bg-[#FAF7F2] hover:bg-[#F4C8C2]/40 text-[#8B1E28] border border-[#F4C8C2]/60 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>🎨</span>
+                  <span>Change avatar or display name</span>
+                </button>
+
+                {/* Step 4: Primary Exit Button: Go to My Home Screen */}
+                <button
+                  type="button"
+                  onClick={handleNavigateHome}
                   className="w-full bg-[#8B1E28] hover:bg-[#721820] active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-2xl shadow-md shadow-[#8B1E28]/25 transition flex items-center justify-center gap-2 cursor-pointer text-xs"
                 >
                   <span>Go to My Home Screen</span>
@@ -515,33 +642,15 @@ export function GuestInviteView({
 
                 <button
                   type="button"
-                  onClick={handleAddToCalendar}
-                  className="w-full py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <span>📅</span>
-                  <span>Add to Calendar</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsProfileModalOpen(true)}
-                  className="w-full py-2.5 px-3 rounded-2xl bg-[#FAF7F2] hover:bg-[#F4C8C2]/40 text-[#8B1E28] border border-[#F4C8C2]/60 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>🎨</span>
-                  <span>Customise Profile · Make your avatar look like you</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setIsChangingResponse(true)}
                   className="text-xs font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer underline pt-1 block mx-auto"
                 >
-                  Change your mind?
+                  Change your response
                 </button>
               </div>
             </div>
 
-            {/* PWA Installation Callout Card */}
+            {/* Step 2: PWA Installation Card */}
             <PwaInstallPromptCard hostName={hostFirstName} />
           </div>
         )}
@@ -579,12 +688,14 @@ export function GuestInviteView({
             </div>
             <div>
               <h3 className="text-base font-black text-amber-900 tracking-tight">
-                Suggestion sent to Taleisha! 💌
+                Suggestion sent to {hostFirstName}! 💌
               </h3>
               {currentRsvp?.counterProposal && (
                 <div className="mt-2 bg-amber-50 p-2.5 rounded-xl border border-amber-200/60 text-xs text-amber-950 font-medium space-y-0.5">
                   <p>Proposed: <strong>{currentRsvp.counterProposal.date}</strong></p>
-                  <p>Time: <strong>{currentRsvp.counterProposal.startTime} – {currentRsvp.counterProposal.endTime}</strong></p>
+                  <p>
+                    Time: <strong>{currentRsvp.counterProposal.startTime} – {currentRsvp.counterProposal.endTime}</strong>
+                  </p>
                   {currentRsvp.counterProposal.note && (
                     <p className="italic text-[#55463D] pt-0.5">"{currentRsvp.counterProposal.note}"</p>
                   )}
@@ -641,7 +752,14 @@ export function GuestInviteView({
             {/* 3. Tertiary Action: Suggest another time */}
             <button
               type="button"
-              onClick={() => setIsCounterProposalOpen(true)}
+              onClick={() => {
+                if (!activeGuestId) {
+                  setFeedbackToast('Please tap your name above to claim your spot! 👆')
+                  setTimeout(() => setFeedbackToast(null), 3000)
+                  return
+                }
+                setIsCounterProposalOpen(true)
+              }}
               className="w-full bg-[#F4C8C2]/40 hover:bg-[#F4C8C2]/60 text-[#8B1E28] font-semibold py-3 rounded-2xl active:scale-[0.98] transition cursor-pointer flex items-center justify-center gap-2 border border-[#F4C8C2]/60"
             >
               <span>💬</span>
@@ -650,7 +768,7 @@ export function GuestInviteView({
           </div>
         )}
 
-        {/* Toast */}
+        {/* Floating Toast */}
         {feedbackToast && (
           <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50 bg-[#2B231F] text-white text-xs font-bold py-2.5 px-4 rounded-full shadow-lg border border-white/10 animate-in fade-in duration-200 text-center max-w-xs">
             {feedbackToast}
@@ -677,6 +795,13 @@ export function GuestInviteView({
         initialName={activeGuestContact?.name}
         initialAvatarUrl={activeGuestContact?.avatarUrl}
         onSave={(updates) => {
+          setClaimedGuest((prev) => ({
+            id: activeGuestId,
+            name: updates.name,
+            avatarUrl: updates.avatarUrl,
+            ...prev,
+            ...updates,
+          }))
           setFeedbackToast(`Profile updated to ${updates.name}! ✨`)
           setTimeout(() => setFeedbackToast(null), 3000)
           if (onNavigateToHome) {
