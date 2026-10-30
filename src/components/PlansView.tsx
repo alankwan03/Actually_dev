@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { HostDashboard, type CatchUpEvent, type OrganicCircle } from './HostDashboard'
 import { CalendarPicker } from './CalendarPicker'
+import { PlanDetailView } from './plans/PlanDetailView'
 
 export interface PlansViewProps {
   events: CatchUpEvent[]
   circles: OrganicCircle[]
   onCreateNew: (preselectedCircle?: string) => void
   onViewAsGuest?: (event: CatchUpEvent) => void
+  onSelectEventId?: (eventId: string) => void
   userEmail?: string
 }
 
@@ -18,6 +20,24 @@ export function PlansView({
   userEmail = 'taleisha.kwan@example.com',
 }: PlansViewProps) {
   const [plansTab, setPlansTab] = useState<'events' | 'heatmap'>('events')
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+
+  // Full-screen Host Event Drill-Down and Management View
+  if (selectedEventId) {
+    const selectedEvent = events.find((e) => String(e.id) === String(selectedEventId))
+    return (
+      <PlanDetailView
+        eventId={selectedEventId}
+        initialEvent={selectedEvent as any}
+        onBack={() => setSelectedEventId(null)}
+        onPreviewAsGuest={() => {
+          if (onViewAsGuest && selectedEvent) {
+            onViewAsGuest(selectedEvent)
+          }
+        }}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col flex-1 h-full select-none text-[#2B231F] pb-10">
@@ -102,7 +122,9 @@ export function PlansView({
           circles={circles}
           onCreateNew={onCreateNew}
           onViewAsGuest={onViewAsGuest}
+          onSelectEvent={(evt) => setSelectedEventId(evt.id)}
           userEmail={userEmail}
+          hideHeader={true}
         />
       )}
 

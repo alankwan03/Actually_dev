@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import { type TimeSlot } from './components/CalendarPicker'
+import { useState, useEffect } from 'react'
 import { type CatchUpEvent, type OrganicCircle } from './components/HostDashboard'
+import type { Event, GuestRsvp } from './types/event'
+import { useApp } from './context/AppContext'
 import { HomeView } from './components/HomeView'
 import { PlansView } from './components/PlansView'
 import { ProfileView } from './components/ProfileView'
 import { CreateView } from './components/CreateView'
 import { ImFreeModal } from './components/ImFreeModal'
 import { AuthModal } from './components/AuthModal'
-import { GuestView } from './components/GuestView'
+import { GuestInviteView } from './components/guest/GuestInviteView'
 import { APP_VERSION } from './config'
 import { type EventType } from './utils/timeSlots'
 
@@ -27,7 +28,7 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
     location: "Sarah's place or Gertrude St",
     circleName: 'The Girls',
     eventType: 'drinks',
-    startTime: '6:00 PM',
+    startTime: '7:00 PM',
     endTime: '11:30 PM',
   },
   {
@@ -119,38 +120,70 @@ export default function App() {
   const [userAvatar] = useState<string>('/tal-profile.png')
   const [userEmail, setUserEmail] = useState<string>('taleisha.kwan@example.com')
 
-  // Events & Circles
-  const [events, setEvents] = useState<CatchUpEvent[]>(INITIAL_MOCK_EVENTS)
-  const [circles, setCircles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
+  // App Context for events & RSVP
+  const {
+    events,
+    createEvent: dispatchCreateEvent,
+    handleRsvp: dispatchHandleRsvp,
+  } = useApp()
+
+  // Circles
+  const [circles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
 
   // Preselected Circle for Create Flow
-  const [createPreselectedCircle, setCreatePreselectedCircle] = useState<string>('')
+  const [createPreselectedCircle] = useState<string>('')
   const [selectedEventForGuest, setSelectedEventForGuest] =
     useState<CatchUpEvent | null>(null)
+  const [selectedGuestIdForView, setSelectedGuestIdForView] =
+    useState<string | undefined>(undefined)
+
+  // Auto-detect /guest URL path or guest search query
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname
+      const queryParams = new URLSearchParams(window.location.search)
+      if (path.includes('/guest') || queryParams.has('guestId')) {
+        setCurrentView('guest')
+        const pathParts = path.split('/')
+        const gIdx = pathParts.indexOf('guest')
+        const targetId =
+          gIdx !== -1 && pathParts[gIdx + 1]
+            ? pathParts[gIdx + 1]
+            : queryParams.get('eventId')
+        if (targetId) {
+          const matched = events.find((e) => String(e.id) === String(targetId))
+          if (matched) setSelectedEventForGuest(matched as any)
+        }
+      }
+    }
+  }, [events])
 
   // Pending Event Draft before Auth
   const [pendingDraft, setPendingDraft] = useState<{
     eventTitle: string
-    circleName: string
     eventType: EventType
     customEventTypeName?: string
-    location?: string
+    date: string
     startTime: string
     endTime: string
-    availability: Record<string, TimeSlot[]>
+    endsNextDay?: boolean
+    location?: string
+    invitedMemberIds: string[]
+    datesProposed?: string
+    dates?: string[]
   }>({
-    eventTitle: "Drinks with The Girls",
-    circleName: '',
+    eventTitle: '',
     eventType: 'drinks',
+    date: '',
     location: '',
     startTime: '6:00 PM',
     endTime: '11:30 PM',
-    availability: {},
+    endsNextDay: false,
+    invitedMemberIds: [],
   })
 
   // Start creating new event
-  const handleStartCreate = (preselectedCircle?: string) => {
-    setCreatePreselectedCircle(preselectedCircle || '')
+  const handleStartCreate = () => {
     setCurrentView('create')
   }
 
@@ -161,61 +194,55 @@ export default function App() {
   }
 
   // Handle successful registration / save event
+  // DECOUPLED: Strictly avoids mutating Circle membership on event creation
   const handleAuthSuccess = (email?: string) => {
     if (email) {
       setUserEmail(email)
     }
 
-    const { eventTitle, circleName, eventType, location, startTime, endTime } = pendingDraft
-
-    // Organically add Circle if circleName is provided and new
-    if (circleName.trim()) {
-      const trimmed = circleName.trim()
-      setCircles((prev) => {
-        const existing = prev.find((c) => c.name.toLowerCase() === trimmed.toLowerCase())
-        if (!existing) {
-          const newCircle: OrganicCircle = {
-            id: `circle-${Date.now()}`,
-            name: trimmed,
-            emoji: '⭕',
-            memberCount: 3,
-            members: ['Taleisha (You)', 'Friend 1', 'Friend 2'],
-            recentCatchUp: eventTitle,
-            lastActive: 'Just now',
-            avatarColors: ['#8B1E28', '#2563EB', '#059669'],
-          }
-          return [newCircle, ...prev]
-        }
-        return prev
-      })
-    }
-
-    // Add new event to In the Works
-    const newEvent: CatchUpEvent = {
-      id: `evt-${Date.now()}`,
-      title: eventTitle || "New Catch-up",
-      status: 'awaiting',
-      statusText: 'Awaiting Replies (1/4)',
-      datesProposed: 'Selected Dates',
-      repliesCount: 1,
-      totalInvited: 4,
-      inviteCode: `actually.app/${(eventTitle || 'plans').toLowerCase().replace(/\s+/g, '-')}`,
-      circleName: circleName.trim() || undefined,
-      location: location || undefined,
+    const {
+      eventTitle,
       eventType,
+      customEventTypeName,
+      date,
+      location,
       startTime,
       endTime,
-    }
-    setEvents((prev) => [newEvent, ...prev])
+      endsNextDay,
+      invitedMemberIds,
+    } = pendingDraft
+
+    // Add new event to In the Works via AppContext
+    dispatchCreateEvent({
+      title: eventTitle || "New Catch-up",
+      eventType,
+      customEventName: customEventTypeName,
+      date: date || new Date().toISOString().split('T')[0],
+      startTime,
+      endTime,
+      endsNextDay,
+      location: location || undefined,
+      invitedMemberIds,
+    })
 
     setIsAuthModalOpen(false)
     setCurrentView('tabs')
     setCurrentTab('plans')
   }
 
-  const handleViewAsGuest = (event: CatchUpEvent) => {
+  const handleViewAsGuest = (event: CatchUpEvent, guestId?: string) => {
     setSelectedEventForGuest(event)
+    setSelectedGuestIdForView(guestId)
     setCurrentView('guest')
+  }
+
+  // Decoupled Guest RSVP: Only updates Event attendees, never mutates Circles
+  const handleGuestRsvp = (guestName: string) => {
+    if (!selectedEventForGuest) return
+    dispatchHandleRsvp(selectedEventForGuest.id, {
+      name: guestName,
+      status: 'accepted',
+    })
   }
 
   return (
@@ -293,6 +320,7 @@ export default function App() {
                   onMakePlan={() => handleStartCreate()}
                   onImFree={() => setIsImFreeModalOpen(true)}
                   onSelectCircle={(circle) => handleStartCreate(circle)}
+                  onViewInvite={(event) => handleViewAsGuest(event as any, 'contact-tal')}
                   userName={userName}
                   userAvatar={userAvatar}
                 />
@@ -321,29 +349,20 @@ export default function App() {
             </>
           )}
 
-          {/* VIEW: Create Event Flow (Task 1: CreateView with "Let's make a Plan") */}
+          {/* VIEW: Create Event Flow */}
           {currentView === 'create' && (
             <CreateView
               onBack={() => setCurrentView('tabs')}
               onGenerateInvite={handleGenerateInvite}
-              initialCircleName={createPreselectedCircle}
-              initialEventTitle={
-                createPreselectedCircle
-                  ? `Catch-up with ${createPreselectedCircle}`
-                  : "Drinks with The Girls"
-              }
             />
           )}
 
           {/* VIEW: Guest RSVP Flow */}
           {currentView === 'guest' && (
-            <GuestView
-              eventTitle={selectedEventForGuest?.title || "Drinks with The Girls"}
-              hostName={userName}
-              location={selectedEventForGuest?.location || "Sarah's place or Gertrude St"}
-              eventType={selectedEventForGuest?.eventType || 'drinks'}
-              startTime={selectedEventForGuest?.startTime || '6:00 PM'}
-              endTime={selectedEventForGuest?.endTime || '11:30 PM'}
+            <GuestInviteView
+              eventId={selectedEventForGuest?.id}
+              initialEvent={selectedEventForGuest as any}
+              guestId={selectedGuestIdForView}
               onBackToDashboard={() => setCurrentView('tabs')}
             />
           )}

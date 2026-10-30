@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { PlanDetailView } from './plans/PlanDetailView'
 
 export interface CatchUpEvent {
   id: string
@@ -6,14 +7,23 @@ export interface CatchUpEvent {
   status: 'awaiting' | 'confirmed' | 'draft'
   statusText: string
   datesProposed: string
+  dates?: string[]
   repliesCount: number
   totalInvited: number
   inviteCode: string
   location?: string
   circleName?: string
-  eventType?: 'breakfast' | 'brunch' | 'lunch' | 'dinner' | 'drinks'
+  eventType?: 'breakfast' | 'brunch' | 'lunch' | 'dinner' | 'drinks' | 'other'
   startTime?: string
   endTime?: string
+  invitedMemberIds?: string[]
+  attendees?: Array<{
+    contactId?: string
+    name: string
+    status: 'attending' | 'declined'
+    timestamp?: string
+  }>
+  votes?: Record<string, string[]>
 }
 
 export interface OrganicCircle {
@@ -30,9 +40,11 @@ export interface OrganicCircle {
 export interface HostDashboardProps {
   onCreateNew: (preselectedCircle?: string) => void
   onViewAsGuest?: (event: CatchUpEvent) => void
+  onSelectEvent?: (event: CatchUpEvent) => void
   userEmail?: string
   events?: CatchUpEvent[]
   circles?: OrganicCircle[]
+  hideHeader?: boolean
 }
 
 const INITIAL_MOCK_CIRCLES: OrganicCircle[] = [
@@ -119,12 +131,25 @@ const INITIAL_MOCK_EVENTS: CatchUpEvent[] = [
 export function HostDashboard({
   onCreateNew,
   onViewAsGuest,
+  onSelectEvent,
   userEmail = 'taleisha.kwan@example.com',
   events = INITIAL_MOCK_EVENTS,
   circles = INITIAL_MOCK_CIRCLES,
+  hideHeader = false,
 }: HostDashboardProps) {
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'catchups' | 'circles'>('catchups')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  // Direct drill-down fallback if rendered standalone
+  if (selectedEventId) {
+    return (
+      <PlanDetailView
+        eventId={selectedEventId}
+        onBack={() => setSelectedEventId(null)}
+      />
+    )
+  }
 
   const handleCopy = (evt: CatchUpEvent, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -141,70 +166,72 @@ export function HostDashboard({
   return (
     <div className="flex flex-col flex-1 h-full select-none text-[#2B231F] pb-24">
       {/* Top Header */}
-      <header className="mb-4">
-        <div className="flex items-center justify-between pb-2 mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-extrabold tracking-tight text-[#8B1E28] flex items-center gap-1.5">
-              Actually. <span className="text-xl" role="img" aria-label="cocktail">🍸</span>
-            </span>
+      {!hideHeader && (
+        <header className="mb-4">
+          <div className="flex items-center justify-between pb-2 mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-extrabold tracking-tight text-[#8B1E28] flex items-center gap-1.5">
+                Actually. <span className="text-xl" role="img" aria-label="cocktail">🍸</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458] truncate max-w-[150px]">
+                {userEmail}
+              </span>
+              <img
+                src="/tal-profile.png"
+                alt="Taleisha"
+                className="w-8 h-8 rounded-full object-cover border-2 border-[#F4C8C2] shadow-xs"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#F3EDE6] text-[#7A6458] truncate max-w-[150px]">
-              {userEmail}
-            </span>
-            <img
-              src="/tal-profile.png"
-              alt="Taleisha"
-              className="w-8 h-8 rounded-full object-cover border-2 border-[#F4C8C2] shadow-xs"
-            />
-          </div>
-        </div>
 
-        {/* Tab Switcher: "My Catch-ups" vs "My Circles" */}
-        <div className="mt-3 bg-[#EFE9DF] p-1 rounded-2xl flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('catchups')}
-            className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === 'catchups'
-                ? 'bg-white text-[#2B231F] shadow-xs'
-                : 'text-[#7A6A60] hover:text-[#2B231F]'
-            }`}
-          >
-            <span>My Catch-ups</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+          {/* Tab Switcher: "My Catch-ups" vs "My Circles" */}
+          <div className="mt-3 bg-[#EFE9DF] p-1 rounded-2xl flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('catchups')}
+              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
                 activeTab === 'catchups'
-                  ? 'bg-[#FDF3F1] text-[#8B1E28]'
-                  : 'bg-[#E3D9CC] text-[#69584D]'
+                  ? 'bg-white text-[#2B231F] shadow-xs'
+                  : 'text-[#7A6A60] hover:text-[#2B231F]'
               }`}
             >
-              {events.length}
-            </span>
-          </button>
+              <span>My Catch-ups</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  activeTab === 'catchups'
+                    ? 'bg-[#FDF3F1] text-[#8B1E28]'
+                    : 'bg-[#E3D9CC] text-[#69584D]'
+                }`}
+              >
+                {events.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('circles')}
-            className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === 'circles'
-                ? 'bg-white text-[#2B231F] shadow-xs'
-                : 'text-[#7A6A60] hover:text-[#2B231F]'
-            }`}
-          >
-            <span>My Circles</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+            <button
+              type="button"
+              onClick={() => setActiveTab('circles')}
+              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
                 activeTab === 'circles'
-                  ? 'bg-[#FDF3F1] text-[#8B1E28]'
-                  : 'bg-[#E3D9CC] text-[#69584D]'
+                  ? 'bg-white text-[#2B231F] shadow-xs'
+                  : 'text-[#7A6A60] hover:text-[#2B231F]'
               }`}
             >
-              {circles.length}
-            </span>
-          </button>
-        </div>
-      </header>
+              <span>My Circles</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  activeTab === 'circles'
+                    ? 'bg-[#FDF3F1] text-[#8B1E28]'
+                    : 'bg-[#E3D9CC] text-[#69584D]'
+                }`}
+              >
+                {circles.length}
+              </span>
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* Main Tab Content */}
       <main className="flex-1">
@@ -232,7 +259,13 @@ export function HostDashboard({
               return (
                 <div
                   key={evt.id}
-                  onClick={() => onViewAsGuest && onViewAsGuest(evt)}
+                  onClick={() => {
+                    if (onSelectEvent) {
+                      onSelectEvent(evt)
+                    } else {
+                      setSelectedEventId(evt.id)
+                    }
+                  }}
                   className="bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] hover:border-[#DECFC1] transition-all cursor-pointer group"
                 >
                   {/* Card Header: Title & Status Pill */}

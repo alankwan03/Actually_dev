@@ -97,7 +97,7 @@ export function ProfileView({
         </div>
       </div>
 
-      {/* App Info with updated version v0.02 (alpha) */}
+      {/* App Info with updated version v0.03 (alpha) */}
       <div className="mt-auto text-center space-y-1 pt-6 text-xs text-[#A6978C]">
         <p className="font-semibold text-[#8B1E28]">Actually. 🍸 Social Planning</p>
         <p>Version {APP_VERSION}</p>

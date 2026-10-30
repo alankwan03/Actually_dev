@@ -1,4 +1,4 @@
-export type EventType = 'breakfast' | 'brunch' | 'lunch' | 'dinner' | 'drinks' | 'other'
+export type EventType = 'breakfast' | 'brunch' | 'lunch' | 'dinner' | 'drinks' | 'coffee' | 'other'
 
 export interface EventTypeConfig {
   id: EventType
@@ -14,6 +14,7 @@ export const EVENT_TYPES: EventTypeConfig[] = [
   { id: 'lunch', label: 'Lunch', emoji: '🥗', defaultStart: '12:00 PM', defaultEnd: '3:00 PM' },
   { id: 'dinner', label: 'Dinner', emoji: '🍝', defaultStart: '5:00 PM', defaultEnd: '10:00 PM' },
   { id: 'drinks', label: 'Drinks', emoji: '🍸', defaultStart: '6:00 PM', defaultEnd: '11:30 PM' },
+  { id: 'coffee', label: 'Coffee', emoji: '☕', defaultStart: '8:00 AM', defaultEnd: '11:00 AM' },
   { id: 'other', label: 'Other', emoji: '✨', defaultStart: '', defaultEnd: '' },
 ]
 
