@@ -67,13 +67,19 @@ export function HomeView({
             </span>
           </div>
 
-          {/* Taleisha's Profile Avatar */}
+          {/* Profile Avatar */}
           <div className="flex items-center gap-2">
-            <img
-              src={userAvatar}
-              alt={userName}
-              className="w-12 h-12 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
-            />
+            {userAvatar.startsWith('/') || userAvatar.startsWith('http') ? (
+              <img
+                src={userAvatar}
+                alt={userName}
+                className="w-12 h-12 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-2xl">
+                {userAvatar}
+              </div>
+            )}
           </div>
         </div>
 

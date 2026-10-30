@@ -27,13 +27,19 @@ export function ProfileView({
         </h1>
       </header>
 
-      {/* User Info Card (Taleisha Kwan & /tal-profile.png) */}
+      {/* User Info Card */}
       <div className="bg-white rounded-3xl p-5 shadow-[0_2px_12px_rgba(40,30,20,0.04)] border border-[#EFE9E0] flex items-center gap-4 mb-6">
-        <img
-          src={userAvatar}
-          alt={userName}
-          className="w-16 h-16 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
-        />
+        {userAvatar.startsWith('/') || userAvatar.startsWith('http') ? (
+          <img
+            src={userAvatar}
+            alt={userName}
+            className="w-16 h-16 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-3xl">
+            {userAvatar}
+          </div>
+        )}
         <div className="space-y-0.5 min-w-0">
           <h2 className="text-lg font-bold text-[#2B231F] truncate">
             {userName}

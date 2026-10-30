@@ -2,7 +2,10 @@ import { useState, useMemo, useEffect } from 'react'
 import type { Event, GuestRsvp } from '../../types/event'
 import { useApp } from '../../context/AppContext'
 import { CounterProposalModal } from './CounterProposalModal'
+import { PwaInstallPromptCard } from './PwaInstallPrompt'
+import { FirstTimeProfileModal } from '../profile/FirstTimeProfileModal'
 import { formatTimeDisplay } from '../../utils/time'
+import { getEventInviteUrl, generateInviteUrl, decodeEventFromUrl } from '../../utils/share'
 
 export interface GuestInviteViewProps {
   eventId?: string
@@ -10,6 +13,7 @@ export interface GuestInviteViewProps {
   guestId?: string
   onBackToDashboard?: () => void
   showTestingBar?: boolean
+  onNavigateToHome?: (userUpdates?: { id?: string; name?: string; avatarUrl?: string }) => void
 }
 
 const DEFAULT_SAMPLE_EVENT: Event = {
@@ -47,8 +51,24 @@ export function GuestInviteView({
   guestId: propGuestId,
   onBackToDashboard,
   showTestingBar = true,
+  onNavigateToHome,
 }: GuestInviteViewProps) {
-  const { events, contacts, getContactById, recordGuestRsvp } = useApp()
+  const { events, contacts, getContactById, recordGuestRsvp, claimGuestIdentity, upsertEventFromLink } = useApp()
+
+  // On mount, check if there is an encoded event snapshot in query param 'd'
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search)
+      const encoded = q.get('d')
+      if (encoded) {
+        const decoded = decodeEventFromUrl(encoded)
+        if (decoded) {
+          upsertEventFromLink(decoded)
+          setSelectedPlanId(String(decoded.id))
+        }
+      }
+    }
+  }, [upsertEventFromLink])
 
   // Available events (fallback to DEFAULT_SAMPLE_EVENT if none exist)
   const availableEvents = useMemo(() => {
@@ -60,6 +80,10 @@ export function GuestInviteView({
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() => {
     if (initialEvent?.id) return String(initialEvent.id)
     if (eventId) return String(eventId)
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('eventId')
+      if (q) return q
+    }
     return String(availableEvents[0]?.id || DEFAULT_SAMPLE_EVENT.id)
   })
 
@@ -69,6 +93,9 @@ export function GuestInviteView({
       setSelectedPlanId(String(initialEvent.id))
     } else if (eventId) {
       setSelectedPlanId(String(eventId))
+    } else if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('eventId')
+      if (q) setSelectedPlanId(q)
     }
   }, [eventId, initialEvent])
 
@@ -120,7 +147,24 @@ export function GuestInviteView({
 
   const [isChangingResponse, setIsChangingResponse] = useState(false)
   const [isCounterProposalOpen, setIsCounterProposalOpen] = useState(false)
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null)
+
+  // Seed guest identity when mounting with an active guest ID
+  useEffect(() => {
+    if (activeGuestId) {
+      const contact = getContactById(activeGuestId)
+      const name = contact?.name || 'Friend'
+      try {
+        localStorage.setItem(
+          'actually_guest_identity',
+          JSON.stringify({ guestId: activeGuestId, name, avatarUrl: contact?.avatarUrl })
+        )
+      } catch (e) {
+        console.error(e)
+      }
+    }
+  }, [activeGuestId, getContactById])
 
   // Current active guest contact details
   const activeGuestContact = useMemo(() => {
@@ -199,6 +243,7 @@ export function GuestInviteView({
   const handleAccept = () => {
     if (!activeGuestId) return
     recordGuestRsvp(currentEvent.id, activeGuestId, 'accepted')
+    claimGuestIdentity(activeGuestId)
     setIsChangingResponse(false)
     setFeedbackToast(`You're in! ${hostFirstName} has been notified 🎉`)
     setTimeout(() => setFeedbackToast(null), 3500)
@@ -230,7 +275,7 @@ export function GuestInviteView({
     const title = encodeURIComponent(currentEvent.title)
     const location = encodeURIComponent(currentEvent.location || '')
     const details = encodeURIComponent(
-      `Actually Catch-up with friends! RSVP link: https://${currentEvent.inviteCode || `actually.app/${currentEvent.id}`}`
+      `Actually Catch-up with friends! RSVP link: ${generateInviteUrl(currentEvent, activeGuestId)}`
     )
     const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&location=${location}&details=${details}`
     window.open(googleCalUrl, '_blank')
@@ -335,11 +380,17 @@ export function GuestInviteView({
 
         {/* Host Card */}
         <div className="flex items-center gap-3 mb-4 px-1">
-          <img
-            src={hostDisplayAvatar}
-            alt={hostDisplayName}
-            className="w-12 h-12 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm shrink-0"
-          />
+          {hostDisplayAvatar.startsWith('/') || hostDisplayAvatar.startsWith('http') ? (
+            <img
+              src={hostDisplayAvatar}
+              alt={hostDisplayName}
+              className="w-12 h-12 rounded-full object-cover border-2 border-[#F4C8C2] shadow-sm shrink-0"
+            />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-[#FAF7F2] border-2 border-[#F4C8C2] shadow-sm flex items-center justify-center text-2xl shrink-0">
+              {hostDisplayAvatar}
+            </div>
+          )}
           <div>
             <p className="text-xs font-medium text-[#7A6458]">
               <strong className="text-[#2B231F] font-bold">{hostDisplayName}</strong> invited you to catch up!
@@ -427,37 +478,71 @@ export function GuestInviteView({
       <div className="pt-6 space-y-3">
         {/* State 1: Already Accepted */}
         {currentStatus === 'accepted' && !isChangingResponse && (
-          <div className="bg-white rounded-3xl p-5 border border-emerald-200 shadow-sm space-y-3 text-center animate-in fade-in">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center text-xl font-bold">
-              ✓
-            </div>
-            <div>
-              <h3 className="text-lg font-black text-emerald-900 tracking-tight">
-                You're in! 🎉
-              </h3>
-              <p className="text-xs text-[#73655C] mt-0.5">
-                We've locked you in for {currentEvent.title}. See you there!
-              </p>
+          <div className="space-y-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl p-5 border border-emerald-200 shadow-sm space-y-3.5 text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center text-xl font-bold">
+                ✓
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-emerald-950 tracking-tight">
+                  You're locked in! 🎉
+                </h3>
+                <p className="text-xs text-[#73655C] mt-1 leading-relaxed">
+                  {hostFirstName} has been notified. We'll keep this plan updated for you.
+                </p>
+              </div>
+
+              <div className="pt-1 space-y-2.5">
+                {/* Primary Transition: Go to My Home Screen */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onNavigateToHome) {
+                      onNavigateToHome({
+                        id: activeGuestId,
+                        name: activeGuestContact?.name,
+                        avatarUrl: activeGuestContact?.avatarUrl,
+                      })
+                    } else if (onBackToDashboard) {
+                      onBackToDashboard()
+                    }
+                  }}
+                  className="w-full bg-[#8B1E28] hover:bg-[#721820] active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-2xl shadow-md shadow-[#8B1E28]/25 transition flex items-center justify-center gap-2 cursor-pointer text-xs"
+                >
+                  <span>Go to My Home Screen</span>
+                  <span className="text-sm">➔</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddToCalendar}
+                  className="w-full py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>📅</span>
+                  <span>Add to Calendar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-2xl bg-[#FAF7F2] hover:bg-[#F4C8C2]/40 text-[#8B1E28] border border-[#F4C8C2]/60 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>🎨</span>
+                  <span>Customise Profile · Make your avatar look like you</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsChangingResponse(true)}
+                  className="text-xs font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer underline pt-1 block mx-auto"
+                >
+                  Change your mind?
+                </button>
+              </div>
             </div>
 
-            <div className="pt-1 space-y-2">
-              <button
-                type="button"
-                onClick={handleAddToCalendar}
-                className="w-full py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>📅</span>
-                <span>Add to Google Calendar</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsChangingResponse(true)}
-                className="text-xs font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer underline"
-              >
-                Change your mind?
-              </button>
-            </div>
+            {/* PWA Installation Callout Card */}
+            <PwaInstallPromptCard hostName={hostFirstName} />
           </div>
         )}
 
@@ -577,11 +662,31 @@ export function GuestInviteView({
       <CounterProposalModal
         isOpen={isCounterProposalOpen}
         onClose={() => setIsCounterProposalOpen(false)}
-        hostName="Taleisha"
+        hostName={hostFirstName}
         currentDate={currentEvent.date}
         currentStartTime={currentEvent.startTime}
         currentEndTime={currentEvent.endTime}
         onSubmit={handleCounterProposalSubmit}
+      />
+
+      {/* 1-Tap Profile Customisation Sheet */}
+      <FirstTimeProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        contactId={activeGuestId}
+        initialName={activeGuestContact?.name}
+        initialAvatarUrl={activeGuestContact?.avatarUrl}
+        onSave={(updates) => {
+          setFeedbackToast(`Profile updated to ${updates.name}! ✨`)
+          setTimeout(() => setFeedbackToast(null), 3000)
+          if (onNavigateToHome) {
+            onNavigateToHome({
+              id: activeGuestId,
+              name: updates.name,
+              avatarUrl: updates.avatarUrl,
+            })
+          }
+        }}
       />
     </div>
   )

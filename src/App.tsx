@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { type CatchUpEvent, type OrganicCircle } from './components/HostDashboard'
 import type { Event, GuestRsvp } from './types/event'
 import { useApp } from './context/AppContext'
@@ -8,9 +8,12 @@ import { CirclesTab } from './components/circles/CirclesTab'
 import { ProfileView } from './components/ProfileView'
 import { CreateView } from './components/CreateView'
 import { ImFreeModal } from './components/ImFreeModal'
-import { AuthModal } from './components/AuthModal'
 import { GuestInviteView } from './components/guest/GuestInviteView'
+import { SharePlanModal } from './components/plans/SharePlanModal'
 import { BottomNav, type MainTab } from './components/navigation/BottomNav'
+import { DevPersonaSwitcher } from './components/common/DevPersonaSwitcher'
+import { ProfileBootstrapModal } from './components/profile/ProfileBootstrapModal'
+import { decodeEventFromUrl } from './utils/share'
 import { APP_VERSION } from './config'
 import { type EventType } from './utils/timeSlots'
 
@@ -112,21 +115,25 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('tabs')
 
   // Modals
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isImFreeModalOpen, setIsImFreeModalOpen] = useState(false)
-
-  // App User & Profile
-  const [userName] = useState<string>('Taleisha')
-  const [userFullName] = useState<string>('Taleisha Kwan')
-  const [userAvatar] = useState<string>('/tal-profile.png')
-  const [userEmail, setUserEmail] = useState<string>('taleisha.kwan@example.com')
 
   // App Context for events & RSVP
   const {
+    currentUser,
     events,
+    isColdVisitor,
+    claimGuestIdentity,
+    updateContactProfile,
+    upsertEventFromLink,
     createEvent: dispatchCreateEvent,
     handleRsvp: dispatchHandleRsvp,
   } = useApp()
+
+  // App User & Profile dynamically synced with currentUser
+  const userName = currentUser?.name?.split(' ')[0] || 'Friend'
+  const userFullName = currentUser?.name || 'Friend'
+  const userAvatar = currentUser?.avatarUrl || '/tal-profile.png'
+  const [userEmail, setUserEmail] = useState<string>('taleisha.kwan@example.com')
 
   // Circles
   const [circles] = useState<OrganicCircle[]>(INITIAL_MOCK_CIRCLES)
@@ -138,28 +145,87 @@ export default function App() {
   const [selectedGuestIdForView, setSelectedGuestIdForView] =
     useState<string | undefined>(undefined)
 
-  // Auto-detect /guest URL path or guest search query
-  useEffect(() => {
+  // Share Plan Modal state
+  const [createdPlanForShare, setCreatedPlanForShare] = useState<Event | null>(null)
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+
+  // Ref to ensure initial URL query handling runs only once on initial mount
+  const hasProcessedInitialUrlRef = useRef(false)
+
+  // Navigation transition: pulls guest out of guest frame into full Home screen
+  const navigateToHomeFromGuest = (guestUser?: { id?: string; name?: string; avatarUrl?: string }) => {
+    if (guestUser?.id) {
+      claimGuestIdentity(guestUser.id)
+      if (guestUser.name || guestUser.avatarUrl) {
+        updateContactProfile(guestUser.id, {
+          name: guestUser.name,
+          avatarUrl: guestUser.avatarUrl,
+        })
+      }
+    }
+    // Clear the guest URL params without reloading the page
     if (typeof window !== 'undefined') {
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+    setCurrentTab('home')
+    setCurrentView('tabs')
+  }
+
+  // Auto-detect ?view=guest&eventId=... or payload ?d=... or /guest URL path on initial mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !hasProcessedInitialUrlRef.current) {
+      hasProcessedInitialUrlRef.current = true
       const path = window.location.pathname
       const queryParams = new URLSearchParams(window.location.search)
-      if (path.includes('/guest') || queryParams.has('guestId')) {
+      const viewParam = queryParams.get('view')
+      const eventIdParam = queryParams.get('eventId')
+      const guestIdParam = queryParams.get('guestId')
+      const dParam = queryParams.get('d')
+
+      let hydratedEvent: Event | null = null
+      if (dParam) {
+        const decoded = decodeEventFromUrl(dParam)
+        if (decoded) {
+          hydratedEvent = upsertEventFromLink(decoded)
+        }
+      }
+
+      if (
+        (viewParam === 'guest' && eventIdParam) ||
+        path.includes('/guest') ||
+        queryParams.has('guestId') ||
+        dParam
+      ) {
         setCurrentView('guest')
         const pathParts = path.split('/')
         const gIdx = pathParts.indexOf('guest')
         const targetId =
-          gIdx !== -1 && pathParts[gIdx + 1]
+          eventIdParam ||
+          (gIdx !== -1 && pathParts[gIdx + 1]
             ? pathParts[gIdx + 1]
-            : queryParams.get('eventId')
+            : queryParams.get('eventId')) ||
+          hydratedEvent?.id
+
+        if (guestIdParam) {
+          claimGuestIdentity(guestIdParam)
+          setSelectedGuestIdForView(guestIdParam)
+        }
+
         if (targetId) {
-          const matched = events.find((e) => String(e.id) === String(targetId))
-          if (matched) setSelectedEventForGuest(matched as any)
+          const matched =
+            (hydratedEvent && String(hydratedEvent.id) === String(targetId) ? hydratedEvent : null) ||
+            events.find((e) => String(e.id) === String(targetId))
+          if (matched) {
+            setSelectedEventForGuest(matched as any)
+          } else {
+            setSelectedEventForGuest({ id: targetId } as any)
+          }
         }
       }
     }
-  }, [events])
+  }, [events, upsertEventFromLink, claimGuestIdentity])
 
-  // Pending Event Draft before Auth
+  // Pending Event Draft
   const [pendingDraft, setPendingDraft] = useState<{
     eventTitle: string
     eventType: EventType
@@ -194,47 +260,24 @@ export default function App() {
     setCurrentView('create')
   }
 
-  // Handle Generate Invite from CreateView
+  // Handle Generate Invite from CreateView: Instant creation bypassing auth gate
   const handleGenerateInvite = (data: typeof pendingDraft) => {
-    setPendingDraft(data)
-    setIsAuthModalOpen(true)
-  }
-
-  // Handle successful registration / save event
-  // DECOUPLED: Strictly avoids mutating Circle membership on event creation
-  const handleAuthSuccess = (email?: string) => {
-    if (email) {
-      setUserEmail(email)
-    }
-
-    const {
-      eventTitle,
-      eventType,
-      customEventTypeName,
-      date,
-      location,
-      startTime,
-      endTime,
-      endsNextDay,
-      invitedMemberIds,
-    } = pendingDraft
-
-    // Add new event to In the Works via AppContext
-    dispatchCreateEvent({
-      title: eventTitle || "New Catch-up",
-      eventType,
-      customEventName: customEventTypeName,
-      date: date || new Date().toISOString().split('T')[0],
-      startTime,
-      endTime,
-      endsNextDay,
-      location: location || undefined,
-      invitedMemberIds,
+    const newEvent = dispatchCreateEvent({
+      title: data.eventTitle || "New Catch-up",
+      eventType: data.eventType,
+      customEventName: data.customEventTypeName,
+      date: data.date || new Date().toISOString().split('T')[0],
+      startTime: data.startTime,
+      endTime: data.endTime,
+      endsNextDay: data.endsNextDay,
+      location: data.location || undefined,
+      invitedMemberIds: data.invitedMemberIds,
     })
 
-    setIsAuthModalOpen(false)
     setCurrentView('tabs')
     setCurrentTab('plans')
+    setCreatedPlanForShare(newEvent)
+    setIsShareModalOpen(true)
   }
 
   const handleViewAsGuest = (event: CatchUpEvent, guestId?: string) => {
@@ -254,66 +297,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F0EAE1] flex flex-col justify-start">
-      {/* Developer Viewport Quick Switcher */}
-      <div className="bg-[#2D231F] text-[#FAF7F2] py-2 px-4 shadow-sm z-50 text-xs">
-        <div className="max-w-md mx-auto flex items-center justify-between">
-          <span className="font-semibold text-[#D4C3B7] tracking-wider uppercase text-[10px]">
-            Dev Preview:
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('tabs')
-                setCurrentTab('home')
-              }}
-              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                currentView === 'tabs' && currentTab === 'home'
-                  ? 'bg-[#8B1E28] text-white'
-                  : 'text-[#D4C3B7] hover:bg-white/10'
-              }`}
-            >
-              Home
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('tabs')
-                setCurrentTab('plans')
-              }}
-              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                currentView === 'tabs' && currentTab === 'plans'
-                  ? 'bg-[#8B1E28] text-white'
-                  : 'text-[#D4C3B7] hover:bg-white/10'
-              }`}
-            >
-              Plans
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView('create')}
-              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                currentView === 'create'
-                  ? 'bg-[#8B1E28] text-white'
-                  : 'text-[#D4C3B7] hover:bg-white/10'
-              }`}
-            >
-              Create
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView('guest')}
-              className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                currentView === 'guest'
-                  ? 'bg-[#8B1E28] text-white'
-                  : 'text-[#D4C3B7] hover:bg-white/10'
-              }`}
-            >
-              Guest
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Dev Persona Switcher & Preview Navigation Bar */}
+      <DevPersonaSwitcher
+        currentView={currentView}
+        currentTab={currentTab}
+        onSwitchView={(view, tab) => {
+          setCurrentView(view)
+          if (tab) setCurrentTab(tab)
+        }}
+      />
 
       {/* Centered Mobile Viewport Container: pb-20 prevents bottom-nav overlap */}
       <div className="max-w-md mx-auto w-full min-h-screen p-4 bg-[#FAFAFA] shadow-lg flex flex-col justify-between relative pb-20">
@@ -379,7 +371,8 @@ export default function App() {
               eventId={selectedEventForGuest?.id}
               initialEvent={selectedEventForGuest as any}
               guestId={selectedGuestIdForView}
-              onBackToDashboard={() => setCurrentView('tabs')}
+              onBackToDashboard={() => navigateToHomeFromGuest()}
+              onNavigateToHome={navigateToHomeFromGuest}
             />
           )}
         </div>
@@ -404,14 +397,20 @@ export default function App() {
           onClose={() => setIsImFreeModalOpen(false)}
         />
 
-        {/* Lazy Registration Modal */}
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-          onSuccess={handleAuthSuccess}
-          eventName={pendingDraft.eventTitle}
-          circleName={pendingDraft.circleName}
-        />
+        {/* Dedicated "Plan Created! 💌" Share Modal */}
+        {isShareModalOpen && createdPlanForShare && (
+          <SharePlanModal
+            isOpen={isShareModalOpen}
+            onClose={() => {
+              setIsShareModalOpen(false)
+              setCreatedPlanForShare(null)
+            }}
+            event={createdPlanForShare}
+          />
+        )}
+
+        {/* Cold Visitor Profile Bootstrap Modal */}
+        <ProfileBootstrapModal isOpen={isColdVisitor && currentView !== 'guest'} />
       </div>
     </div>
   )

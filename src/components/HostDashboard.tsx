@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { PlanDetailView } from './plans/PlanDetailView'
 import { PlanCard } from './plans/PlanCard'
+import { getEventInviteUrl } from '../utils/share'
 
 export interface CatchUpEvent {
   id: string
@@ -155,7 +156,7 @@ export function HostDashboard({
 
   const handleCopy = (evt: CatchUpEvent, e: React.MouseEvent) => {
     e.stopPropagation()
-    const fullUrl = `https://${evt.inviteCode}`
+    const fullUrl = getEventInviteUrl(evt.id)
     if (navigator.clipboard) {
       navigator.clipboard.writeText(fullUrl).catch(() => {})
     }

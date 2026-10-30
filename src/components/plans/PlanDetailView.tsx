@@ -18,6 +18,7 @@ import {
 } from '../../utils/time'
 import type { Circle } from '../../types/circle'
 import { ContactQuickCreateModal } from '../circles/ContactQuickCreateModal'
+import { getEventInviteUrl } from '../../utils/share'
 
 export interface PlanDetailViewProps {
   eventId: string
@@ -138,8 +139,7 @@ export function PlanDetailView({
 
   // Share action (navigator.share or clipboard fallback)
   const handleShareLink = async () => {
-    const titleSlug = (event.title || 'plan').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    const inviteUrl = `https://${event.inviteCode || `actually.app/${titleSlug}`}`
+    const inviteUrl = getEventInviteUrl(event.id, undefined, event)
     const shareData = {
       title: event.title || 'Actually Plan',
       text: `Join our plan: "${event.title || 'Catch-up'}" on ${formattedEventDate} at ${formatTimeDisplay(event.startTime || '6:00 PM')}!`,
@@ -264,8 +264,7 @@ export function PlanDetailView({
   // Dispatch update share to guests
   const handleShareUpdate = async () => {
     if (!event) return
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://actually.app'
-    const guestUrl = `${origin}/guest/${event.id}`
+    const guestUrl = getEventInviteUrl(event.id, undefined, event)
     const message =
       updateModalConfig?.customShareMessage ||
       `Hey! Quick update on '${event.title}': We're now meeting on ${updatedSummary.formattedDate} at ${updatedSummary.startTime}${updatedSummary.location ? ` at ${updatedSummary.location}` : ''}. Let me know if you can still make it: ${guestUrl}`
@@ -405,9 +404,7 @@ export function PlanDetailView({
     updateEvent(updated)
 
     // Pre-populate "Plan Updated! 💌" / "Time Swapped! 🗓️" modal context
-    const origin =
-      typeof window !== 'undefined' ? window.location.origin : 'https://actually.app'
-    const guestUrl = `${origin}/guest/${event.id}`
+    const guestUrl = getEventInviteUrl(event.id, undefined, updated)
     const shareMessage = `Hey everyone! We've swapped '${event.title}' to ${proposerName}'s suggestion: ${newFormattedDate} at ${newStartTime}${event.location ? ` at ${event.location}` : ''}. Let me know if that works for you: ${guestUrl}`
 
     setUpdatedSummary({

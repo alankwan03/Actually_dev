@@ -18,6 +18,11 @@ export const CURRENT_USER: CurrentUser = {
 
 interface AppContextType {
   currentUser: CurrentUser
+  claimGuestIdentity: (guestId: string) => void
+  updateContactProfile: (
+    contactId: string,
+    updates: { name?: string; avatarUrl?: string }
+  ) => void
   contacts: Contact[]
   circles: Circle[]
   events: Event[]
@@ -71,12 +76,19 @@ interface AppContextType {
     }
   ) => void
   markGuestNudged: (eventId: string, guestId: string) => void
+  upsertEventFromLink: (eventData: Partial<Event> & { id: string }) => Event
+  switchPersona: (personaId: string) => void
+  isColdVisitor: boolean
+  completeColdBootstrap: (name: string) => void
 }
 
 const STORAGE_KEYS = {
   CONTACTS: 'actually_contacts',
   CIRCLES: 'actually_circles',
   EVENTS: 'actually_events',
+  GUEST_IDENTITY: 'actually_guest_identity',
+  ACTIVE_USER_ID: 'actually_active_user_id',
+  COLD_BOOTSTRAP_COMPLETED: 'actually_cold_bootstrap_completed',
 }
 
 const SEED_CONTACTS: Contact[] = [
@@ -317,6 +329,83 @@ function deriveInitials(name: string): string {
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [isColdVisitor, setIsColdVisitor] = useState<boolean>(() => {
+    try {
+      if (typeof window === 'undefined') return false
+      const params = new URLSearchParams(window.location.search)
+      if (
+        params.get('view') === 'guest' ||
+        params.get('eventId') ||
+        params.get('d') ||
+        params.get('guestId')
+      ) {
+        return false
+      }
+      const hasCompletedBootstrap =
+        localStorage.getItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED) === 'true'
+      const hasGuestIdentity = !!localStorage.getItem(STORAGE_KEYS.GUEST_IDENTITY)
+      const hasActiveUserId = !!localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID)
+      if (!hasCompletedBootstrap && !hasGuestIdentity && !hasActiveUserId) {
+        return true
+      }
+    } catch {
+      // fallback
+    }
+    return false
+  })
+
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        const isInvite =
+          params.get('view') === 'guest' ||
+          params.get('eventId') ||
+          params.get('d') ||
+          params.get('guestId')
+        const hasCompletedBootstrap =
+          localStorage.getItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED) === 'true'
+        const storedIdentity = localStorage.getItem(STORAGE_KEYS.GUEST_IDENTITY)
+        const activeUserId = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_ID)
+
+        if (storedIdentity) {
+          const parsed = JSON.parse(storedIdentity)
+          if (parsed?.guestId) {
+            const matched = SEED_CONTACTS.find((c) => c.id === parsed.guestId)
+            return {
+              id: parsed.guestId,
+              name: parsed.name || matched?.name || 'Friend',
+              avatarUrl: parsed.avatarUrl || matched?.avatarUrl,
+              email: matched?.email,
+            }
+          }
+        }
+
+        if (activeUserId) {
+          const matched = SEED_CONTACTS.find((c) => c.id === activeUserId)
+          if (matched) {
+            return {
+              id: matched.id,
+              name: matched.name,
+              avatarUrl: matched.avatarUrl,
+              email: matched.email,
+            }
+          }
+        }
+
+        if (!isInvite && !hasCompletedBootstrap && !storedIdentity && !activeUserId) {
+          return {
+            id: 'temp-guest',
+            name: 'Guest',
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return CURRENT_USER
+  })
+
   const [contacts, setContacts] = useState<Contact[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.CONTACTS)
@@ -724,10 +813,179 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     )
   }
 
+  const claimGuestIdentity = (guestId: string) => {
+    const contact = contacts.find((c) => c.id === guestId) || getContactById(guestId)
+    const name = contact?.name || (guestId === 'contact-tal' ? 'Taleisha Kwan' : 'Friend')
+    const avatarUrl = contact?.avatarUrl || (guestId === 'contact-tal' ? '/tal-profile.png' : undefined)
+    const identity = {
+      guestId,
+      name,
+      avatarUrl,
+    }
+    try {
+      localStorage.setItem(STORAGE_KEYS.GUEST_IDENTITY, JSON.stringify(identity))
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, guestId)
+      localStorage.setItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED, 'true')
+    } catch (e) {
+      console.error('Failed to save guest identity', e)
+    }
+    setIsColdVisitor(false)
+    setCurrentUser({
+      id: guestId,
+      name,
+      avatarUrl,
+      email: contact?.email,
+    })
+  }
+
+  const switchPersona = (personaId: string) => {
+    if (personaId === 'new_visitor') {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.GUEST_IDENTITY)
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID)
+        localStorage.removeItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED)
+      } catch (e) {
+        console.error(e)
+      }
+      setIsColdVisitor(true)
+      setCurrentUser({
+        id: 'temp-guest',
+        name: 'Guest',
+      })
+      return
+    }
+
+    const contact = contacts.find((c) => c.id === personaId) || SEED_CONTACTS.find((c) => c.id === personaId)
+    if (contact) {
+      claimGuestIdentity(contact.id)
+    } else if (personaId === 'contact-tal') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_USER_ID, 'contact-tal')
+        localStorage.setItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED, 'true')
+        localStorage.removeItem(STORAGE_KEYS.GUEST_IDENTITY)
+      } catch (e) {
+        console.error(e)
+      }
+      setIsColdVisitor(false)
+      setCurrentUser(CURRENT_USER)
+    }
+  }
+
+  const completeColdBootstrap = (name: string) => {
+    const trimmed = name.trim() || 'New Friend'
+    const newContact = createContact({ name: trimmed })
+    try {
+      localStorage.setItem(STORAGE_KEYS.COLD_BOOTSTRAP_COMPLETED, 'true')
+    } catch (e) {
+      console.error(e)
+    }
+    claimGuestIdentity(newContact.id)
+  }
+
+  const upsertEventFromLink = (incoming: Partial<Event> & { id: string }): Event => {
+    let resultEvent: Event = incoming as Event
+    setEvents((prev) => {
+      const existingIndex = prev.findIndex((e) => String(e.id) === String(incoming.id))
+      if (existingIndex >= 0) {
+        const existing = prev[existingIndex]
+        const mergedRsvps = {
+          ...(incoming.rsvps || {}),
+          ...(existing.rsvps || {}),
+        }
+        const mergedAttendees =
+          existing.attendees && existing.attendees.length > 0
+            ? existing.attendees
+            : incoming.attendees || []
+
+        const merged: Event = {
+          ...existing,
+          ...incoming,
+          rsvps: mergedRsvps,
+          attendees: mergedAttendees,
+          invitedMemberIds: Array.from(
+            new Set([
+              ...(existing.invitedMemberIds || []),
+              ...(incoming.invitedMemberIds || []),
+            ])
+          ),
+        }
+        const updated = [...prev]
+        updated[existingIndex] = merged
+        resultEvent = merged
+        return updated
+      } else {
+        const newEvent: Event = {
+          id: incoming.id,
+          title: incoming.title || 'Catch-up',
+          eventType: incoming.eventType || 'coffee',
+          customEventName: incoming.customEventName,
+          date: incoming.date || new Date().toISOString().split('T')[0],
+          startTime: incoming.startTime || '7:00 PM',
+          endTime: incoming.endTime || '9:00 PM',
+          endsNextDay: incoming.endsNextDay,
+          location: incoming.location,
+          hostId: incoming.hostId || 'contact-tal',
+          hostName: incoming.hostName || 'Taleisha Kwan',
+          hostAvatar: incoming.hostAvatar || '/tal-profile.png',
+          invitedMemberIds: incoming.invitedMemberIds || ['contact-tal'],
+          rsvps: incoming.rsvps || {
+            [incoming.hostId || 'contact-tal']: {
+              contactId: incoming.hostId || 'contact-tal',
+              status: 'accepted',
+            },
+          },
+          createdAt: incoming.createdAt || new Date().toISOString(),
+          status: incoming.status || 'awaiting',
+          statusText: incoming.statusText || 'Awaiting Replies',
+          datesProposed: incoming.datesProposed || incoming.date,
+          dates: incoming.dates || (incoming.date ? [incoming.date] : []),
+          circleName: incoming.circleName || 'Friends',
+          attendees: incoming.attendees || [],
+          totalInvited: incoming.invitedMemberIds?.length || 1,
+          repliesCount: incoming.repliesCount || 0,
+        }
+        resultEvent = newEvent
+        return [newEvent, ...prev]
+      }
+    })
+    return resultEvent
+  }
+
+  const updateContactProfile = (
+    contactId: string,
+    updates: { name?: string; avatarUrl?: string }
+  ) => {
+    setContacts((prev) =>
+      prev.map((c) => (c.id === contactId ? { ...c, ...updates } : c))
+    )
+    if (currentUser.id === contactId) {
+      setCurrentUser((prev) => ({
+        ...prev,
+        ...updates,
+      }))
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.GUEST_IDENTITY)
+        const parsed = stored ? JSON.parse(stored) : {}
+        localStorage.setItem(
+          STORAGE_KEYS.GUEST_IDENTITY,
+          JSON.stringify({ ...parsed, guestId: contactId, ...updates })
+        )
+      } catch (e) {
+        console.error('Failed to update guest identity', e)
+      }
+    }
+  }
+
   return (
     <AppContext.Provider
       value={{
-        currentUser: CURRENT_USER,
+        currentUser,
+        claimGuestIdentity,
+        switchPersona,
+        isColdVisitor,
+        completeColdBootstrap,
+        upsertEventFromLink,
+        updateContactProfile,
         contacts,
         circles,
         events,
